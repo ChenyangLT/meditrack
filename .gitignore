@@ -32,3 +32,10 @@ Thumbs.db
 # Scratch rendered by the verification and preview tooling, never part of the source.
 .dsh-vision-router/
 /artifacts/
+
+# ------------------------------------------------------------------ delivery folder
+# Where local hand-offs land: built installers, write-ups and preview images.
+# Deliberately not published - these are multi-megabyte binaries and personal build notes, and the
+# public repository distributes the same installers through GitHub Releases instead. Publishing them
+# here as well would put every historical APK into git history forever.
+/releases/
