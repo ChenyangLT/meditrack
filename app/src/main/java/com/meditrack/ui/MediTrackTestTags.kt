@@ -40,6 +40,9 @@ object MediTrackTestTags {
      */
     const val QUIET_HOURS_SWITCH = "quiet_hours_switch"
 
+    /** The "选择文件夹" button that points backups at a user-visible folder. */
+    const val BACKUP_FOLDER_BUTTON = "backup_folder_button"
+
     /** The bottom-bar tab labels, for navigation in tests. */
     const val TAB_TODAY = "tab_today"
     const val TAB_MEDICATIONS = "tab_medications"

@@ -57,6 +57,7 @@ class SettingsRepository @Inject constructor(
         val QUIET_ENABLED = booleanPreferencesKey("quiet_enabled")
         val QUIET_START = intPreferencesKey("quiet_start")
         val QUIET_END = intPreferencesKey("quiet_end")
+        val BACKUP_FOLDER_URI = stringPreferencesKey("backup_folder_uri")
 
         // Retired idle deferral. The keys are still *read* (and written back on import) so an old
         // backup round-trips; nothing makes a decision from them any more.
@@ -141,6 +142,11 @@ class SettingsRepository @Inject constructor(
     suspend fun setMissedReminderEnabled(enabled: Boolean) = edit { it[Keys.MISSED_REMINDER] = enabled }
     suspend fun setMaxEscalations(count: Int) = edit { it[Keys.MAX_ESCALATIONS] = count.coerceIn(0, 10) }
     suspend fun setQuietHoursEnabled(enabled: Boolean) = edit { it[Keys.QUIET_ENABLED] = enabled }
+
+    /** Points backups at a picked folder, or back at app-private storage when [uri] is null. */
+    suspend fun setBackupFolderUri(uri: String?) = edit {
+        if (uri == null) it.remove(Keys.BACKUP_FOLDER_URI) else it[Keys.BACKUP_FOLDER_URI] = uri
+    }
     suspend fun setQuietHours(startMinute: Int, endMinute: Int) = edit { p ->
         p[Keys.QUIET_START] = startMinute.coerceIn(0, 1439)
         p[Keys.QUIET_END] = endMinute.coerceIn(0, 1439)
@@ -285,6 +291,7 @@ class SettingsRepository @Inject constructor(
             snoozeStateNotificationEnabled =
                 this[Keys.SNOOZE_STATE_NOTIFICATION] ?: defaults.snoozeStateNotificationEnabled,
             quietHoursDeferEnabled = this[Keys.QUIET_DEFER] ?: defaults.quietHoursDeferEnabled,
+            backupFolderUri = this[Keys.BACKUP_FOLDER_URI] ?: defaults.backupFolderUri,
             catchUpReminderEnabled = this[Keys.CATCH_UP] ?: defaults.catchUpReminderEnabled,
             heartbeatMinutes = this[Keys.HEARTBEAT_MINUTES] ?: defaults.heartbeatMinutes,
             reliabilityWorkerEnabled =

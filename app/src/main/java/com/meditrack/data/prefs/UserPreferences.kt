@@ -148,6 +148,13 @@ data class UserPreferences(
      * likely to work.
      */
     val quietHoursDeferEnabled: Boolean = true,
+    /**
+     * Folder backups are written to, as a persisted SAF tree uri; null means the app's own storage.
+     *
+     * Device-local on purpose: it is deliberately not part of the backup DTO, so importing a backup
+     * never repoints someone else's folder setting at a folder that does not exist here.
+     */
+    val backupFolderUri: String? = null,
     /** Show the silent "如果已经吃过，请点一下" prompt when a reminder is discovered too late. */
     val catchUpReminderEnabled: Boolean = true,
     /**

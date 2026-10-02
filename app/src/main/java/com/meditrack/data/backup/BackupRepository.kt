@@ -238,7 +238,17 @@ class BackupRepository @Inject constructor(
      * truncated file that looks like a valid backup.
      */
     suspend fun exportJsonTo(target: File, appVersion: String): File = withContext(Dispatchers.IO) {
-        writeAtomically(target, gson.toJson(buildBackup(appVersion)))
+        writeAtomically(target, backupJsonText(appVersion))
+    }
+
+    /**
+     * The backup body itself.
+     *
+     * Split out because a backup can also be written to a folder the user picked, which is reached
+     * through a document uri rather than a [File].
+     */
+    suspend fun backupJsonText(appVersion: String): String = withContext(Dispatchers.IO) {
+        gson.toJson(buildBackup(appVersion))
     }
 
     /**
@@ -248,6 +258,11 @@ class BackupRepository @Inject constructor(
      * medication, then planned vs taken vs status.
      */
     suspend fun exportCsvTo(target: File): File = withContext(Dispatchers.IO) {
+        writeAtomically(target, csvText())
+    }
+
+    /** The CSV body, separate from where it lands. See [backupJsonText]. */
+    suspend fun csvText(): String = withContext(Dispatchers.IO) {
         val medications = database.medicationDao().getAllOnce().associateBy { it.id }
         val doses = database.doseLogDao().getBetween(Long.MIN_VALUE, Long.MAX_VALUE)
             .sortedWith(compareBy({ it.epochDay }, { it.plannedMinuteOfDay }))
@@ -282,7 +297,7 @@ class BackupRepository @Inject constructor(
             ).append('\n')
         }
 
-        writeAtomically(target, builder.toString())
+        builder.toString()
     }
 
     // ----------------------------------------------------------------- import

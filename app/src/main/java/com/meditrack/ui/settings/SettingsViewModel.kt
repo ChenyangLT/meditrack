@@ -16,9 +16,11 @@ import com.meditrack.data.prefs.ThemeMode
 import com.meditrack.data.prefs.UserPreferences
 import com.meditrack.data.prefs.WeekStart
 import com.meditrack.data.repository.DoseRepository
-import androidx.core.content.FileProvider
 import com.meditrack.core.util.DateTimeUtils
+import com.meditrack.data.backup.BackupEntry
+import com.meditrack.data.backup.BackupFolder
 import com.meditrack.data.backup.BackupRepository
+import com.meditrack.data.backup.BackupStore
 import com.meditrack.data.local.entity.ReminderEvent
 import com.meditrack.domain.reminder.ReminderAudit
 import com.meditrack.domain.reminder.ReminderEngine
@@ -32,7 +34,6 @@ import com.meditrack.domain.reminder.ReminderWorker
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import java.io.File
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -76,6 +77,7 @@ class SettingsViewModel @Inject constructor(
     private val reminderAudit: ReminderAudit,
     private val doseRepository: DoseRepository,
     private val backupRepository: BackupRepository,
+    private val backupStore: BackupStore,
     private val app: android.app.Application,
 ) : ViewModel() {
 
@@ -104,9 +106,88 @@ class SettingsViewModel @Inject constructor(
     private val _message = MutableStateFlow<String?>(null)
     val message: StateFlow<String?> = _message.asStateFlow()
 
-    private val _lastExport = MutableStateFlow<File?>(null)
+    private val _lastExport = MutableStateFlow<BackupEntry?>(null)
     /** The most recent successful export, offered to the user as "分享" instead of a bare path. */
-    val lastExport: StateFlow<File?> = _lastExport.asStateFlow()
+    val lastExport: StateFlow<BackupEntry?> = _lastExport.asStateFlow()
+
+    /** Where exports go, in words: the picked folder's name, or "应用内部存储（默认）". */
+    private val _backupFolder = MutableStateFlow("应用内部存储（默认）")
+    val backupFolder: StateFlow<String> = _backupFolder.asStateFlow()
+
+    /**
+     * Backups the app can see right now, newest first.
+     *
+     * Listed from the folder itself rather than remembered in the database: the folder is the source
+     * of truth, so a file the user copied in by hand shows up too.
+     */
+    private val _backups = MutableStateFlow<List<BackupEntry>>(emptyList())
+    val backups: StateFlow<List<BackupEntry>> = _backups.asStateFlow()
+
+    /** Re-reads the folder and its contents. Safe to call on every screen resume. */
+    fun refreshBackups() {
+        viewModelScope.launch {
+            runCatching {
+                _backupFolder.value = backupStore.folderLabel()
+                _backups.value = backupStore.list()
+            }
+        }
+    }
+
+    /**
+     * Points backups at [uri] and moves everything already backed up into it.
+     *
+     * Both the folder that was in use and the app-private default are copied from, so choosing a
+     * folder never strands the backups that came before it.
+     */
+    fun chooseBackupFolder(uri: Uri) {
+        viewModelScope.launch {
+            runCatching {
+                val previous = backupStore.folder()
+                backupStore.setFolder(uri)
+                val moved = backupStore.migrate(
+                    from = listOf(previous, BackupFolder.AppPrivate),
+                    to = BackupFolder.Tree(uri),
+                )
+                _message.value = when {
+                    moved.copied > 0 -> "已转移 ${moved.copied} 个备份文件到新文件夹"
+                    else -> "备份文件夹已更新"
+                }
+            }.onFailure {
+                _message.value = "无法使用该文件夹：${it.message ?: "未知错误"}"
+            }
+            refreshBackups()
+        }
+    }
+
+    /** Back to app-private storage; the files in the old folder are left where they are. */
+    fun resetBackupFolder() {
+        viewModelScope.launch {
+            runCatching { backupStore.clearFolder() }
+            _message.value = "已恢复为应用内部存储"
+            refreshBackups()
+        }
+    }
+
+    /** Imports one of the listed backups, no file picker needed. */
+    fun importListedBackup(entry: BackupEntry) {
+        viewModelScope.launch {
+            runCatching {
+                val backup = withContext(Dispatchers.IO) {
+                    backupStore.read(entry).use { backupRepository.parseBackup(it) }
+                }
+                backupRepository.importBackup(backup)
+            }.onSuccess { result ->
+                rescheduleEverything()
+                doseRepository.notifyWidgetRefresh()
+                _message.value = "已从 ${entry.name} 导入 ${result.medications} 条药品、${result.doseLogs} 条记录"
+            }.onFailure {
+                _message.value = "导入失败：${it.message ?: "未知错误"}"
+            }
+        }
+    }
+
+    /** A shareable uri for a listed backup, so it can be sent off the device. */
+    fun shareUri(entry: BackupEntry): Uri = backupStore.shareUri(entry)
 
     /** Reads the live permission state; call from `ON_RESUME` so returning from Settings refreshes. */
     fun refreshPermissions(context: Context) {
@@ -481,31 +562,37 @@ class SettingsViewModel @Inject constructor(
     }
 
     /**
-     * Exports a backup into the app's own `files/exports` directory.
+     * Exports a backup into the current backup folder.
      *
-     * App-private storage is the reliable target: it needs no permission on any supported Android
-     * version, and the caller can then either share the file through FileProvider or copy the path.
-     * Writing straight to a user-visible directory would require a SAF flow on every export.
+     * Defaults to the app's own `files/exports` (no permission needed on any Android version), but the
+     * user can point it at a folder they can actually open - which is what makes a backup usable
+     * without going through a share sheet first.
      */
-    fun exportBackup(context: Context, csv: Boolean) {
+    fun exportBackup(csv: Boolean) {
         viewModelScope.launch {
             runCatching {
-                withContext(Dispatchers.IO) {
-                    val dir = File(context.filesDir, EXPORT_DIR)
-                    dir.mkdirs()
-                    val stamp = DateTimeUtils.formatDate(DateTimeUtils.todayEpochDay())
+                val folder = backupStore.folder()
+                val stamp = DateTimeUtils.formatDate(DateTimeUtils.todayEpochDay())
+                val entry = withContext(Dispatchers.IO) {
                     if (csv) {
-                        backupRepository.exportCsvTo(File(dir, "meditrack-$stamp.csv"))
+                        backupStore.writeText(
+                            folder = folder,
+                            name = "meditrack-$stamp.csv",
+                            mimeType = "text/csv",
+                            text = backupRepository.csvText(),
+                        )
                     } else {
-                        backupRepository.exportJsonTo(
-                            File(dir, "meditrack-backup-$stamp.json"),
-                            appVersion = appVersionName(context),
+                        backupStore.writeText(
+                            folder = folder,
+                            name = "meditrack-backup-$stamp.json",
+                            mimeType = "application/json",
+                            text = backupRepository.backupJsonText(appVersionName(app)),
                         )
                     }
                 }
-            }.onSuccess { file ->
-                _lastExport.value = file
-                _message.value = "已导出：${file.name}"
+                _lastExport.value = entry
+                _message.value = "已导出：${entry.name}"
+                refreshBackups()
             }.onFailure {
                 _message.value = "导出失败：${it.message ?: "未知错误"}"
             }
@@ -533,18 +620,11 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
-    /** Produces a content:// uri for an exported file so it can be handed to a share sheet. */
-    fun exportUri(context: Context, file: File): Uri =
-        FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
-
     private fun appVersionName(context: Context): String = runCatching {
         context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: ""
     }.getOrDefault("")
 
     companion object {
-        /** Subdirectory of `filesDir` that holds the exports. Mirrors `xml/file_paths.xml`. */
-        const val EXPORT_DIR = "exports"
-
         /** How many audit entries the self-check screen shows. */
         const val AUDIT_LOG_LIMIT = 20
 

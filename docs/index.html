@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>药准时 · 离线优先的用药提醒与记录</title>
-<meta name="description" content="药准时是一款离线优先的用药提醒与记录应用：精确闹钟、后台守护、解锁补提醒、桌面小组件、历史统计。不申请网络权限，数据只存在你的手机里。">
+<meta name="description" content="药准时是一款离线优先的用药提醒与记录应用：精确闹钟、后台守护、解锁补提醒、免打扰时段、可选备份文件夹、桌面小组件、历史统计。不申请网络权限，数据只存在你的手机里。">
 <meta name="theme-color" content="#0F1113">
 <meta property="og:title" content="药准时 · 离线优先的用药提醒与记录">
 <meta property="og:description" content="到点提醒；没看见，就再提醒一次。">
@@ -372,7 +372,7 @@
         <div class="card"><div class="ico">±</div><h3>数量与库存</h3><p>加号减号步进记录，液体支持 0.5 步长；状态由数量推导（已服 / 部分 / 未服），库存自动扣减并在不足时提醒。</p></div>
         <div class="card"><div class="ico">▤</div><h3>桌面小组件</h3><p>单一可缩放条目，按「即将服用 &gt; 未服药 &gt; 今日稍后 &gt; 已服用」排序，刷新间隔 10 秒到 10 分钟可选。</p></div>
         <div class="card"><div class="ico">◱</div><h3>适老与无障碍</h3><p>可选大字体（总字号封顶 1.6×，布局自动换行而不是压缩）、高对比模式、简化模式、更大的触控目标，以及一键适老预设。</p></div>
-        <div class="card"><div class="ico">↺</div><h3>备份与导出</h3><p>JSON 全量备份与恢复、CSV 记录导出（方便交给医生）。文件在你自己手里，不经任何服务器。</p></div>
+        <div class="card"><div class="ico">↺</div><h3>备份与导出</h3><p>备份文件夹可选：直接写进「下载」或你指定的任意文件夹（含网盘、SD 卡），<b>应用内就会列出这些备份，最新在上面，点一条即可导入</b>；换文件夹时已有备份会自动复制过去。另有 CSV 导出，方便交给医生。</p></div>
         <div class="card"><div class="ico">☾</div><h3>主题</h3><p>Material 3、动态取色、浅色 / 深色 / 跟随系统，三套主题色。数字与时间始终使用等宽字体。</p></div>
       </div>
     </div>
@@ -402,13 +402,16 @@
     <div class="wrap">
       <div class="head reveal">
         <div class="kicker">更新日志</div>
-        <h2>1.6.0</h2>
-        <p>新增免打扰时段；上一版的重点是「没人看见的那一次提醒」，以及在真机上发现的几个缺陷。</p>
+        <h2>1.7.0</h2>
+        <p>这一版把「备份」做成你能看见、能直接用的东西；上一版新增了免打扰时段。</p>
       </div>
       <div class="grid g2 reveal">
         <div class="card">
           <h3>新增</h3>
           <ul class="changelog">
+            <li><b>备份文件夹可选</b>：备份不再只躺在应用内部（那里文件管理器根本看不到）。现在可以选一个你能打开的文件夹——「下载」、网盘、SD 卡都行，备份直接出现在那里。</li>
+            <li><b>应用内自动识别备份</b>：设置里直接列出该文件夹里的全部备份，<b>按时间排序、最新在上面</b>并标注「最新」；点某一条就能导入，不用再走系统文件选择器。</li>
+            <li><b>换文件夹自动转移</b>：切换文件夹时，之前所有备份（包括还在应用内部的那份）会自动复制过去；同名同大小的跳过，不会重复也不会漏。</li>
             <li><b>免打扰时段</b>：一个时间段内不会有声音、震动，也不会在锁屏上弹出；到点的提醒默认顺延到时段结束后再发，也可以改为只在通知栏静默显示。时段内解锁补提醒同样静默，且不消耗提醒次数。</li>
             <li><b>解锁补提醒</b>：解锁或回到应用时，立刻检查所有已超时且未记录的剂量（含已判未服药、只吃了一半），合并成一条提醒。</li>
             <li><b>提醒次数与间隔</b>：每个药 1–10 次，从第一次解锁提醒开始算；两次之间可设最小间隔；免打扰时段只留静默通知且不消耗次数。</li>
@@ -460,7 +463,7 @@
 <footer>
   <div class="wrap fgrid">
     <a class="brand" href="#top" style="font-size:.95rem"><img src="assets/icon.svg" alt="">药准时 · MediTrack</a>
-    <span class="mono muted">v1.6.0</span>
+    <span class="mono muted">v1.7.0</span>
     <nav style="font-size:.9rem">
       <a href="https://github.com/ChenyangLT/meditrack">GitHub</a>
       <a href="https://github.com/ChenyangLT/meditrack/blob/main/LICENSE">MIT License</a>

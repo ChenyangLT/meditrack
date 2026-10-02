@@ -4,6 +4,7 @@ import android.content.Intent
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
@@ -15,6 +16,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -26,6 +29,8 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.ErrorOutline
+import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.Restore
 import androidx.compose.material.icons.filled.HealthAndSafety
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Lock
@@ -35,6 +40,8 @@ import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Upload
 import androidx.compose.material.icons.filled.Widgets
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -76,8 +83,10 @@ import com.meditrack.data.prefs.ThemeMode
 import com.meditrack.data.prefs.WeekStart
 import com.meditrack.core.theme.prefs
 import com.meditrack.core.util.DateTimeUtils
+import com.meditrack.data.backup.BackupEntry
 import com.meditrack.data.local.entity.ReminderEvent
 import com.meditrack.domain.reminder.ReminderHealth
+import com.meditrack.ui.MediTrackTestTags
 import com.meditrack.ui.components.TimePickerDialog
 
 /**
@@ -117,13 +126,21 @@ fun SettingsScreen(
     val auditLog by viewModel.auditLog.collectAsStateWithLifecycle()
     val message by viewModel.message.collectAsStateWithLifecycle()
     val lastExport by viewModel.lastExport.collectAsStateWithLifecycle()
+    val backups by viewModel.backups.collectAsStateWithLifecycle()
+    val backupFolder by viewModel.backupFolder.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
+    // A listed backup is imported only after an explicit confirmation: it replaces everything.
+    var pendingImport by remember { mutableStateOf<BackupEntry?>(null) }
     // Which end of the do-not-disturb window the time dialog is editing: 0 = start, 1 = end.
     var quietEditing by remember { mutableStateOf<Int?>(null) }
 
     // The self-check is a snapshot of system state, so it is read when the screen appears and
     // refreshed on every resume - the same treatment the permission rows already get.
-    LaunchedEffect(Unit) { viewModel.refreshHealth() }
+    LaunchedEffect(Unit) {
+        viewModel.refreshHealth()
+        // The folder is the source of truth for the backup list, so re-read it rather than caching.
+        viewModel.refreshBackups()
+    }
 
     // Permission state lives in the system, not in our state; re-read it on every resume so
     // coming back from the Settings app updates the screen.
@@ -133,6 +150,7 @@ fun SettingsScreen(
             if (event == Lifecycle.Event.ON_RESUME) {
                 viewModel.refreshPermissions(context)
                 viewModel.refreshHealth()
+                viewModel.refreshBackups()
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -147,11 +165,39 @@ fun SettingsScreen(
         contract = ActivityResultContracts.OpenDocument(),
     ) { uri -> uri?.let { viewModel.importBackup(context, it) } }
 
+    // ACTION_OPEN_DOCUMENT_TREE: lets the user put backups anywhere they can see - Downloads, a cloud
+    // provider, an SD card - with a grant that survives reboots.
+    val folderLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocumentTree(),
+    ) { uri -> uri?.let { viewModel.chooseBackupFolder(it) } }
+
     LaunchedEffect(message) {
         message?.let {
             snackbarHostState.showSnackbar(it)
             viewModel.onMessageShown()
         }
+    }
+
+    pendingImport?.let { entry ->
+        AlertDialog(
+            onDismissRequest = { pendingImport = null },
+            title = { Text("导入这份备份？") },
+            text = {
+                Text(
+                    "将用 ${entry.name} 里的内容替换当前全部药品与服药记录。" +
+                        "此操作不可撤销，建议先把当前数据导出一份。",
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        viewModel.importListedBackup(entry)
+                        pendingImport = null
+                    },
+                ) { Text("导入并覆盖") }
+            },
+            dismissButton = { TextButton(onClick = { pendingImport = null }) { Text("取消") } },
+        )
     }
 
     quietEditing?.let { which ->
@@ -889,37 +935,106 @@ fun SettingsScreen(
                         icon = Icons.Filled.Download,
                         title = "导出 JSON 备份",
                         subtitle = "包含药品、时间和全部服药记录",
-                        onClick = { viewModel.exportBackup(context, csv = false) },
+                        onClick = { viewModel.exportBackup(csv = false) },
                     )
                     ActionRow(
                         icon = Icons.Filled.Download,
                         title = "导出 CSV 记录",
                         subtitle = "表格格式，方便交给医生查看",
-                        onClick = { viewModel.exportBackup(context, csv = true) },
+                        onClick = { viewModel.exportBackup(csv = true) },
                     )
                     ActionRow(
                         icon = Icons.Filled.Upload,
                         title = "从文件导入",
-                        subtitle = "会覆盖当前所有数据，请先导出备份",
+                        subtitle = "从任意位置选一个备份文件导入",
                         onClick = { importLauncher.launch(arrayOf("application/json", "*/*")) },
                     )
-                    lastExport?.let { file ->
+                    lastExport?.let { entry ->
                         Spacer(modifier = Modifier.height(4.dp))
-                        TextButton(
-                            onClick = {
-                                runCatching {
-                                    val uri = viewModel.exportUri(context, file)
-                                    val share = Intent(Intent.ACTION_SEND).apply {
-                                        type = "application/octet-stream"
-                                        putExtra(Intent.EXTRA_STREAM, uri)
-                                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                                    }
-                                    context.startActivity(
-                                        Intent.createChooser(share, "分享备份文件")
-                                    )
-                                }
-                            },
-                        ) { Text("分享刚导出的文件（${file.name}）") }
+                        TextButton(onClick = { shareBackup(context, viewModel, entry) }) {
+                            Text("分享刚导出的文件（${entry.name}）")
+                        }
+                    }
+                }
+            }
+
+            // ------------------------------------------------------------ backup folder & list
+            item {
+                SettingsSection("备份文件夹", Icons.Filled.Folder) {
+                    Text(
+                        text = "备份默认存在应用内部，其它应用看不到。选一个你能打开的文件夹" +
+                            "（比如「下载」），备份就会直接出现在文件管理器里，也能直接导回来。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.Folder,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(20.dp),
+                        )
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("当前位置", style = MaterialTheme.typography.bodyMedium)
+                            Text(
+                                text = backupFolder,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    FlowRow(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        Button(
+                            onClick = { folderLauncher.launch(null) },
+                            modifier = Modifier.testTag(MediTrackTestTags.BACKUP_FOLDER_BUTTON),
+                        ) { Text("选择文件夹") }
+                        if (backupFolder != "应用内部存储（默认）") {
+                            TextButton(onClick = { viewModel.resetBackupFolder() }) {
+                                Text("恢复默认位置")
+                            }
+                        }
+                    }
+                    Text(
+                        text = "换文件夹时，已有的备份会自动复制过去，不会丢。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+
+            item {
+                SettingsSection("本地备份（${backups.size}）", Icons.Filled.Restore) {
+                    if (backups.isEmpty()) {
+                        Text(
+                            text = "这个文件夹里还没有备份。点上面的「导出 JSON 备份」生成一份。",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    } else {
+                        Text(
+                            text = "按时间排序，最新在上面。点一条即可导入。",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        backups.forEachIndexed { index, entry ->
+                            BackupRow(
+                                entry = entry,
+                                isNewest = index == 0,
+                                onImport = { pendingImport = entry },
+                                onShare = { shareBackup(context, viewModel, entry) },
+                            )
+                        }
                     }
                 }
             }
@@ -1186,6 +1301,90 @@ private fun HealthRow(
  * This is the answer to "why didn't it remind me?": a suppressed entry names the reason
  * ("距离上次提醒还不够久"), a delivered one names the trigger and how late it was.
  */
+/**
+ * One backup file in the list: when, how big, and the two things you can do with it.
+ *
+ * The newest entry is labelled rather than merely sorted first, because "which one do I want" is the
+ * question the list exists to answer, and the answer is almost always the top one.
+ */
+@Composable
+private fun BackupRow(
+    entry: BackupEntry,
+    isNewest: Boolean,
+    onImport: () -> Unit,
+    onShare: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onImport)
+            .padding(vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = if (entry.name.endsWith(".csv", true)) "CSV 记录" else "JSON 备份",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                if (isNewest) {
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = "最新",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                }
+            }
+            Text(
+                text = buildString {
+                    append(
+                        if (entry.modifiedAtMillis > 0L) {
+                            DateTimeUtils.formatDateTime(entry.modifiedAtMillis)
+                        } else {
+                            entry.name
+                        }
+                    )
+                    if (entry.sizeBytes > 0L) append(" · " + formatBytes(entry.sizeBytes))
+                },
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        IconButton(onClick = onShare) {
+            Icon(
+                imageVector = Icons.Filled.Upload,
+                contentDescription = "分享 ${entry.name}",
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+/** Human sizes for the backup list; a 200 KB file should not read as "204800 字节". */
+internal fun formatBytes(bytes: Long): String = when {
+    bytes >= 1024L * 1024L -> String.format("%.1f MB", bytes / 1024.0 / 1024.0)
+    bytes >= 1024L -> "${bytes / 1024} KB"
+    else -> "$bytes B"
+}
+
+/** Hands a backup to the share sheet, wherever it lives. */
+private fun shareBackup(
+    context: android.content.Context,
+    viewModel: SettingsViewModel,
+    entry: BackupEntry,
+) {
+    runCatching {
+        val uri = viewModel.shareUri(entry)
+        val share = Intent(Intent.ACTION_SEND).apply {
+            type = "application/octet-stream"
+            putExtra(Intent.EXTRA_STREAM, uri)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        context.startActivity(Intent.createChooser(share, "分享备份文件"))
+    }
+}
+
 @Composable
 private fun AuditRow(event: ReminderEvent) {
     val delivered = event.delivered
