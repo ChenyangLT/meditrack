@@ -40,29 +40,27 @@ class UpdateRepository @Inject constructor(
      */
     suspend fun check(currentVersion: String, force: Boolean, nowMillis: Long = System.currentTimeMillis()): UpdateCheckResult {
         val prefs = settings.current()
-        if (!prefs.autoUpdateCheck && !force) return UpdateCheckResult.Failed
-        if (!force && nowMillis - prefs.lastUpdateCheckAtMillis < MIN_INTERVAL_MILLIS) {
-            return UpdateCheckResult.Failed
-        }
+        val allowed = UpdatePolicy.shouldCheck(
+            autoCheckEnabled = prefs.autoUpdateCheck,
+            force = force,
+            lastCheckAtMillis = prefs.lastUpdateCheckAtMillis,
+            nowMillis = nowMillis,
+        )
+        if (!allowed) return UpdateCheckResult.Failed
 
         val info = checker.latest(currentVersion)
         settings.setLastUpdateCheckAt(nowMillis)
         if (info == null) return UpdateCheckResult.Failed
         if (!UpdateVersion.isNewer(info.version, currentVersion)) return UpdateCheckResult.UpToDate
 
-        val dismissed = prefs.dismissedUpdateVersion
-        return if (!force && dismissed == info.tagName) {
-            UpdateCheckResult.Dismissed(info)
-        } else {
+        return if (UpdatePolicy.shouldInterrupt(force, prefs.dismissedUpdateVersion, info.tagName)) {
             UpdateCheckResult.Available(info)
+        } else {
+            UpdateCheckResult.Dismissed(info)
         }
     }
 
     /** "以后再说": this exact version stops being offered until a newer one shows up. */
     suspend fun dismiss(info: UpdateInfo) = settings.setDismissedUpdateVersion(info.tagName)
 
-    companion object {
-        /** Twice a day is plenty for a release cadence measured in weeks. */
-        const val MIN_INTERVAL_MILLIS = 12L * 60L * 60L * 1000L
-    }
 }
