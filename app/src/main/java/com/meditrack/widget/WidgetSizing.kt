@@ -26,8 +26,6 @@ data class WidgetLayout(
      * system font, includes sizes that are comfortable at the default scale.
      */
     val singleLineRows: Boolean,
-    /** Whether each row offers its "+" / "-" buttons. */
-    val showQuickActions: Boolean,
     /** Padding between the widget edge and the content. Shrinks with the tile. */
     val outerPaddingDp: Int,
     /** Vertical gap between two dose rows. */
@@ -104,18 +102,6 @@ object WidgetSizing {
     /** Reserved for the trailing "还有 N 项…" line when one is drawn. */
     const val OVERFLOW_HINT_DP = 16f
 
-    /**
-     * A row must be at least this tall before the "+" / "-" buttons are offered.
-     *
-     * The buttons are 32dp circles, so this does **not** scale with fonts: the constraint is the
-     * fixed tap target, not the text beside it. A mis-tap on a medication quantity is worse than no
-     * button at all.
-     */
-    const val MIN_ACTIONABLE_ROW_DP = 40
-
-    /** Below this width the row's text and buttons cannot coexist. */
-    const val MIN_ACTIONABLE_WIDTH_DP = 220f
-
     /** Padding steps, so a small tile keeps its text off the launcher's own rounded corner. */
     private const val PADDING_ROOMY_DP = 12
     private const val PADDING_TIGHT_DP = 8
@@ -131,9 +117,7 @@ object WidgetSizing {
     const val DEFAULT_ITEM_LIMIT = 4
 
     fun layoutFor(
-        widthDp: Float,
         heightDp: Float,
-        quickActionsEnabled: Boolean,
         itemCount: Int,
         /**
          * The user's own ceiling on how many doses a tile may show.
@@ -193,10 +177,6 @@ object WidgetSizing {
         val rowLimit = fitRows.coerceAtMost(ceiling)
 
         val rowBudget = ((usable - reservedForHint) / rowLimit).toInt()
-        val showQuickActions = quickActionsEnabled &&
-            !singleLineRows &&
-            widthDp >= MIN_ACTIONABLE_WIDTH_DP &&
-            rowBudget >= MIN_ACTIONABLE_ROW_DP
 
         val reservedHeader = if (showHeader) headerBlock else 0f
         val reserved = 2 * padding + reservedHeader + rowLimit * rowUnit + reservedForHint
@@ -205,7 +185,6 @@ object WidgetSizing {
             showHeader = showHeader,
             rowLimit = rowLimit,
             singleLineRows = singleLineRows,
-            showQuickActions = showQuickActions,
             outerPaddingDp = padding,
             rowSpacingDp = if (singleLineRows) ROW_SPACING_TIGHT_DP.toInt() else ROW_SPACING_DP.toInt(),
             showOverflowHint = showOverflowHint,

@@ -1,10 +1,25 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Dark launcher: swap the widget surface and text colours. -->
+    <!--
+      Dark launcher: swap the widget surface, text and status colours.
+
+      These are the same hues as the light variant, lightened until they clear text contrast against
+      #FF1C1B1F. They match the dark-theme status colours the rest of the app already uses, so the
+      widget and the today screen read the same way.
+    -->
     <color name="widget_surface_light">#FF1C1B1F</color>
     <color name="widget_surface_dark">#FFFFFBF7</color>
     <color name="widget_on_surface_light">#FFE6E1E5</color>
     <color name="widget_on_surface_dark">#FF1B1C1E</color>
     <color name="widget_on_surface_variant_light">#FFC4C7CE</color>
     <color name="widget_on_surface_variant_dark">#FF5C5F66</color>
+
+    <color name="widget_status_due_soon">#FFFFC24D</color>
+    <color name="widget_status_missed">#FFFFB4AB</color>
+    <color name="widget_status_later">#FFA7C8F5</color>
+    <color name="widget_status_taken">#FF7FD9A3</color>
+    <color name="widget_status_skipped">#FFB8BDC6</color>
+
+    <color name="widget_row_due_soon">#26FFC24D</color>
+    <color name="widget_row_missed">#26FFB4AB</color>
 </resources>

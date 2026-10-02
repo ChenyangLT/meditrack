@@ -14,15 +14,12 @@ import com.meditrack.domain.reminder.ReminderTrigger
 import com.meditrack.domain.reminder.ReminderWorker
 import com.meditrack.domain.reminder.DoseNotifier
 import com.meditrack.domain.reminder.UserActivityReceiver
-import com.meditrack.widget.WidgetUpdateWorker
-import androidx.work.ExistingPeriodicWorkPolicy
-import androidx.work.PeriodicWorkRequestBuilder
+import com.meditrack.widget.WidgetRefresh
 import dagger.hilt.android.HiltAndroidApp
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
-import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 
 /**
@@ -158,37 +155,13 @@ class MediTrackApp : Application(), Configuration.Provider {
         runCatching { ReminderWorker.apply(prefs.reliabilityWorkerEnabled, WorkManager.getInstance(this)) }
             .onFailure { Log.w(TAG, "reconciliation worker setup failed", it) }
 
-        scheduleWidgetRefresh(prefs.widgetRefreshMinutes)
-    }
-
-    /**
-     * Periodic widget refresh as a safety net.
-     *
-     * The widget is normally updated by data changes, by alarm delivery and by the launcher, but a
-     * periodic job guarantees the "即将服用" ordering and the countdown stays accurate even if the
-     * device sat idle all afternoon.
-     */
-    private fun scheduleWidgetRefresh(intervalMinutes: Int) {
-        val interval = intervalMinutes.coerceIn(MIN_WIDGET_REFRESH_MINUTES, 240).toLong()
-        val request = PeriodicWorkRequestBuilder<WidgetUpdateWorker>(interval, TimeUnit.MINUTES)
-            .setInitialDelay(1, TimeUnit.MINUTES)
-            .addTag(WidgetUpdateWorker.WORK_TAG)
-            .build()
-
-        runCatching {
-            WorkManager.getInstance(this).enqueueUniquePeriodicWork(
-                WidgetUpdateWorker.UNIQUE_NAME,
-                // UPDATE keeps the existing schedule rather than resetting the interval every launch.
-                ExistingPeriodicWorkPolicy.UPDATE,
-                request,
-            )
-        }.onFailure { Log.w(TAG, "widget refresh scheduling failed", it) }
+        // The widget's own cadence is driven by the guard service's ticker; this arms the 15-minute
+        // floor that keeps the tile honest when that service is switched off.
+        runCatching { WidgetRefresh.applyFallback(this) }
+            .onFailure { Log.w(TAG, "widget refresh scheduling failed", it) }
     }
 
     companion object {
         private const val TAG = "MediTrackApp"
-
-        /** AppWidgetProviderInfo cannot refresh faster than 30 minutes; WorkManager can. */
-        private const val MIN_WIDGET_REFRESH_MINUTES = 15
     }
 }

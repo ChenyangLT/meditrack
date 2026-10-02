@@ -153,8 +153,19 @@ data class SettingsDto(
     @SerializedName("snoozeMinutes") val snoozeMinutes: Int,
     @SerializedName("missedGraceMinutes") val missedGraceMinutes: Int,
     @SerializedName("widgetItemLimit") val widgetItemLimit: Int,
-    @SerializedName("widgetQuickActions") val widgetQuickActions: Boolean,
+    /**
+     * Retired: the widget's "+" / "-" buttons were removed, so nothing reads this any more.
+     *
+     * Kept as a nullable field rather than deleted so that a backup written by an older build - which
+     * still contains the property - continues to parse without a missing-field surprise.
+     */
+    @SerializedName("widgetQuickActions") val widgetQuickActions: Boolean? = null,
     @SerializedName("widgetShowCompleted") val widgetShowCompleted: Boolean,
+    /**
+     * Widget re-check cadence in seconds. Absent from backups written before the widget rework, in
+     * which case the stored value is kept rather than being reset to a default.
+     */
+    @SerializedName("widgetRefreshSeconds") val widgetRefreshSeconds: Int? = null,
     // Added in the reminder-configuration release. All nullable-with-default so a backup written by
     // an earlier build still imports cleanly.
     @SerializedName("headsUpEnabled") val headsUpEnabled: Boolean? = null,
@@ -406,10 +417,10 @@ class BackupRepository @Inject constructor(
         setSnoozeMinutes(dto.snoozeMinutes)
         setMissedGraceMinutes(dto.missedGraceMinutes)
         setWidgetItemLimit(dto.widgetItemLimit)
-        setWidgetQuickActions(dto.widgetQuickActions)
         setWidgetShowCompleted(dto.widgetShowCompleted)
         // Added later: each falls back to the stored value when the backup predates the option, so
         // importing an old file never silently switches a reminder behaviour off.
+        dto.widgetRefreshSeconds?.let { setWidgetRefreshSeconds(it) }
         dto.soundEnabled?.let { setSoundEnabled(it) }
         dto.vibrationEnabled?.let { setVibrationEnabled(it) }
         dto.headsUpEnabled?.let { setHeadsUpEnabled(it) }
@@ -511,7 +522,7 @@ class BackupRepository @Inject constructor(
         use24HourFormat = use24HourFormat, weekStart = weekStart.name,
         remindersEnabled = remindersEnabled, snoozeMinutes = snoozeMinutes,
         missedGraceMinutes = missedGraceMinutes, widgetItemLimit = widgetItemLimit,
-        widgetQuickActions = widgetQuickActions, widgetShowCompleted = widgetShowCompleted,
+        widgetShowCompleted = widgetShowCompleted, widgetRefreshSeconds = widgetRefreshSeconds,
         headsUpEnabled = headsUpEnabled,
         soundEnabled = soundEnabled,
         vibrationEnabled = vibrationEnabled,

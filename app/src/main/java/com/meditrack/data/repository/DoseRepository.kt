@@ -648,12 +648,10 @@ class DoseRepository @Inject constructor(
     suspend fun buildWidgetContent(epochDay: Long = DateTimeUtils.todayEpochDay()): WidgetContent {
         val prefs = settingsRepository.current()
         val rows = homeWidgetDao.getWidgetRowsOnce(epochDay).map { it.toSource(epochDay) }
-        val content = WidgetPlanner.plan(rows, prefs.use24HourFormat)
-        return if (prefs.widgetShowCompleted) {
-            content
-        } else {
-            content.copy(items = content.items.filter { it.priority != WidgetPriority.DONE })
-        }
+        // The hide-completed rule lives on WidgetContent so this path and the widget's own content
+        // builder cannot drift apart and make the tile flicker between two different lists.
+        return WidgetPlanner.plan(rows, prefs.use24HourFormat)
+            .visible(showCompleted = prefs.widgetShowCompleted)
     }
 
     /** Signals the launcher that today's data changed. No-op when no widget is placed. */

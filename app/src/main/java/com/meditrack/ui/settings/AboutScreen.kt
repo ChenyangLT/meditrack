@@ -16,6 +16,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.MedicalServices
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Card
@@ -32,9 +33,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.meditrack.BuildConfig
+import com.meditrack.R
 import com.meditrack.core.theme.prefs
 
 /**
@@ -128,7 +131,7 @@ fun AboutScreen(onBack: () -> Unit) {
                     BulletLine("自定义药品、剂型、规格、每次剂量与多个服药时间。")
                     BulletLine("支持每天、隔天、每周指定、每 N 天、吃 X 天停 Y 天等重复规则。")
                     BulletLine("用加号 / 减号记录实际服药数量，自动判断已服、部分服用与未服药。")
-                    BulletLine("桌面小组件优先显示还没吃和马上要吃的药。")
+                    BulletLine("桌面小组件按 即将服用（黄色）→ 未服药（红色）→ 已服用（绿色）排序。")
                     BulletLine("历史日历与依从率统计，可导出 CSV 交给医生参考。")
                 }
             }
@@ -138,6 +141,25 @@ fun AboutScreen(onBack: () -> Unit) {
                     BulletLine("支持 Android 8.0 及以上，已针对 Android 14 适配。")
                     BulletLine("支持浅色 / 深色主题、动态取色与大字体。")
                     BulletLine("提供高对比度与简化模式的适老选项。")
+                }
+            }
+
+            item {
+                AboutCard(icon = Icons.Filled.Person, title = stringResource(R.string.about_author_title)) {
+                    Text(
+                        text = stringResource(R.string.about_author_name),
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                    BulletLine(stringResource(R.string.about_author_license))
+                    BulletLine(stringResource(R.string.about_author_repo))
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        text = stringResource(R.string.about_author_note),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                 }
             }
 

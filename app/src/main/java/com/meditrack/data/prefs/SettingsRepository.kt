@@ -88,8 +88,15 @@ class SettingsRepository @Inject constructor(
         val LAST_INTERACTION = longPreferencesKey("last_interaction")
 
         val WIDGET_LIMIT = intPreferencesKey("widget_limit")
-        val WIDGET_REFRESH = intPreferencesKey("widget_refresh")
-        val WIDGET_QUICK_ACTIONS = booleanPreferencesKey("widget_quick_actions")
+
+        /**
+         * Widget re-check cadence, in seconds.
+         *
+         * The key name is deliberately *not* the old `widget_refresh`, which held minutes: reusing it
+         * would reinterpret a stored `30` as thirty seconds and silently turn a half-hourly widget
+         * into one polling every half minute.
+         */
+        val WIDGET_REFRESH_SECONDS = intPreferencesKey("widget_refresh_seconds")
         val WIDGET_SHOW_COMPLETED = booleanPreferencesKey("widget_show_completed")
 
         val APP_LOCK = booleanPreferencesKey("app_lock")
@@ -185,8 +192,12 @@ class SettingsRepository @Inject constructor(
     suspend fun lastInteraction(): Long? = dataStore.data.first()[Keys.LAST_INTERACTION]
 
     suspend fun setWidgetItemLimit(limit: Int) = edit { it[Keys.WIDGET_LIMIT] = limit.coerceIn(1, 8) }
-    suspend fun setWidgetRefreshMinutes(minutes: Int) = edit { it[Keys.WIDGET_REFRESH] = minutes.coerceIn(15, 240) }
-    suspend fun setWidgetQuickActions(enabled: Boolean) = edit { it[Keys.WIDGET_QUICK_ACTIONS] = enabled }
+
+    /** Widget re-check cadence. Clamped to the range the settings screen offers. */
+    suspend fun setWidgetRefreshSeconds(seconds: Int) = edit {
+        it[Keys.WIDGET_REFRESH_SECONDS] = seconds.coerceIn(MIN_WIDGET_REFRESH_SECONDS, MAX_WIDGET_REFRESH_SECONDS)
+    }
+
     suspend fun setWidgetShowCompleted(enabled: Boolean) = edit { it[Keys.WIDGET_SHOW_COMPLETED] = enabled }
 
     suspend fun setAppLockEnabled(enabled: Boolean) = edit { it[Keys.APP_LOCK] = enabled }
@@ -256,8 +267,7 @@ class SettingsRepository @Inject constructor(
             alarmClockAlarms = this[Keys.ALARM_CLOCK_ALARMS] ?: defaults.alarmClockAlarms,
             guardServiceEnabled = this[Keys.GUARD_SERVICE] ?: defaults.guardServiceEnabled,
             widgetItemLimit = this[Keys.WIDGET_LIMIT] ?: defaults.widgetItemLimit,
-            widgetRefreshMinutes = this[Keys.WIDGET_REFRESH] ?: defaults.widgetRefreshMinutes,
-            widgetQuickActions = this[Keys.WIDGET_QUICK_ACTIONS] ?: defaults.widgetQuickActions,
+            widgetRefreshSeconds = this[Keys.WIDGET_REFRESH_SECONDS] ?: defaults.widgetRefreshSeconds,
             widgetShowCompleted = this[Keys.WIDGET_SHOW_COMPLETED] ?: defaults.widgetShowCompleted,
             appLockEnabled = this[Keys.APP_LOCK] ?: defaults.appLockEnabled,
             onboardingCompleted = this[Keys.ONBOARDING_DONE] ?: defaults.onboardingCompleted,
@@ -279,5 +289,16 @@ class SettingsRepository @Inject constructor(
          * enough that it does not itself become a battery complaint.
          */
         const val MIN_HEARTBEAT_MINUTES = 10
+
+        /**
+         * The widget refresh range the settings screen offers.
+         *
+         * Ten seconds is a genuinely useful floor for a widget whose whole job is to be current, and
+         * it is attainable only because the guard service drives the cadence directly - WorkManager
+         * cannot go below fifteen minutes and `updatePeriodMillis` below thirty. Ten minutes is the
+         * ceiling because beyond that the tile is stale often enough to be misleading.
+         */
+        const val MIN_WIDGET_REFRESH_SECONDS = 10
+        const val MAX_WIDGET_REFRESH_SECONDS = 600
     }
 }

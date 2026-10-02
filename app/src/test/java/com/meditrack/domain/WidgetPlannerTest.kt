@@ -47,36 +47,42 @@ class WidgetPlannerTest {
     )
 
     @Test
-    fun `an overdue dose outranks a dose that is due soon`() {
+    fun `an upcoming dose outranks an overdue one`() {
+        // The product decision, pinned: what is *coming* goes first, because that is the question a
+        // widget glanced at on the way out of the door should answer. The overdue dose stays
+        // prominent in red one line down.
         val content = WidgetPlanner.plan(
             rows = listOf(
-                row(id = 1, minutesFromNow = 10),   // due soon
-                row(id = 2, minutesFromNow = -60),  // overdue
+                row(id = 1, minutesFromNow = -60),  // overdue
+                row(id = 2, minutesFromNow = 10),   // due soon
             ),
             nowMillis = now,
         )
 
         assertThat(content.items.map { it.doseId }).containsExactly(2L, 1L).inOrder()
-        assertThat(content.items.first().priority).isEqualTo(WidgetPriority.OVERDUE)
+        assertThat(content.items.first().priority).isEqualTo(WidgetPriority.DUE_SOON)
     }
 
     @Test
-    fun `the full priority chain is overdue then due soon then later then done`() {
+    fun `the full priority chain was ordered as the spec requires`() {
         val content = WidgetPlanner.plan(
             rows = listOf(
                 row(id = 1, minutesFromNow = 300),                    // later today
                 row(id = 2, minutesFromNow = 10),                     // due soon
                 row(id = 3, minutesFromNow = -30),                    // overdue
-                row(id = 4, minutesFromNow = -120, status = "TAKEN", taken = 1.0), // done
+                row(id = 4, minutesFromNow = -120, status = "TAKEN", taken = 1.0), // taken
+                row(id = 5, minutesFromNow = -120, status = "SKIPPED"),            // skipped
             ),
             nowMillis = now,
         )
 
+        // yellow (upcoming), red (missed), neutral (later), green (taken), muted (skipped)
         assertThat(content.items.map { it.priority }).containsExactly(
-            WidgetPriority.OVERDUE,
             WidgetPriority.DUE_SOON,
+            WidgetPriority.MISSED,
             WidgetPriority.LATER_TODAY,
-            WidgetPriority.DONE,
+            WidgetPriority.TAKEN,
+            WidgetPriority.SKIPPED,
         ).inOrder()
     }
 
@@ -101,10 +107,10 @@ class WidgetPlannerTest {
     }
 
     @Test
-    fun `a dose exactly at the current minute is overdue not upcoming`() {
+    fun `a dose exactly at the current minute counts as missed not upcoming`() {
         val content = WidgetPlanner.plan(rows = listOf(row(id = 1, minutesFromNow = 0)), nowMillis = now)
 
-        assertThat(content.items.single().priority).isEqualTo(WidgetPriority.OVERDUE)
+        assertThat(content.items.single().priority).isEqualTo(WidgetPriority.MISSED)
     }
 
     @Test
@@ -122,7 +128,7 @@ class WidgetPlannerTest {
     }
 
     @Test
-    fun `a partially taken overdue dose still outranks everything else`() {
+    fun `a partly taken dose past its time sits in the red tier`() {
         val content = WidgetPlanner.plan(
             rows = listOf(
                 row(id = 1, minutesFromNow = 5),
@@ -131,26 +137,52 @@ class WidgetPlannerTest {
             nowMillis = now,
         )
 
-        assertThat(content.items.first().doseId).isEqualTo(2L)
-        assertThat(content.items.first().priority).isEqualTo(WidgetPriority.OVERDUE)
-        assertThat(content.items.first().statusLabel).isEqualTo("部分服用")
+        // The upcoming dose still leads, but the partial one is red rather than being written off as
+        // completed - half a dose is still outstanding work.
+        val partial = content.items.single { it.doseId == 2L }
+        assertThat(partial.priority).isEqualTo(WidgetPriority.MISSED)
+        assertThat(partial.statusLabel).isEqualTo("部分服用")
+        assertThat(content.items.first().doseId).isEqualTo(1L)
     }
 
     @Test
-    fun `resolved doses are not actionable so the stepper is hidden`() {
+    fun `hiding completed doses keeps the missed ones visible`() {
+        // The whole point of the red tier: a dose the user missed must not disappear behind the
+        // "显示已服用" switch, which is about tidying up, not about hiding problems.
         val content = WidgetPlanner.plan(
             rows = listOf(
-                row(id = 1, minutesFromNow = -10, status = "TAKEN", taken = 1.0),
-                row(id = 2, minutesFromNow = -10, status = "SKIPPED"),
-                row(id = 3, minutesFromNow = 10),
+                row(id = 1, minutesFromNow = -120, status = "TAKEN", taken = 1.0),
+                row(id = 2, minutesFromNow = -120, status = "SKIPPED"),
+                row(id = 3, minutesFromNow = -60),                       // overdue, untouched
+                row(id = 4, minutesFromNow = -90, status = "MISSED"),    // swept to missed
+                row(id = 5, minutesFromNow = 10),
             ),
             nowMillis = now,
         )
 
-        val byId = content.items.associateBy { it.doseId }
-        assertThat(byId.getValue(1L).actionable).isFalse()
-        assertThat(byId.getValue(2L).actionable).isFalse()
-        assertThat(byId.getValue(3L).actionable).isTrue()
+        val visible = content.visible(showCompleted = false)
+
+        assertThat(visible.items.map { it.doseId }).containsExactly(5L, 3L, 4L)
+        // And with the switch on, everything comes back.
+        assertThat(content.visible(showCompleted = true).items).hasSize(5)
+    }
+
+    @Test
+    fun `the fingerprint changes exactly when the visible payload changes`() {
+        // This is what makes a ten-second refresh interval affordable: a tick that finds the same
+        // fingerprint does not redraw.
+        val rows = listOf(row(id = 1, minutesFromNow = 10))
+        val before = WidgetPlanner.plan(rows, nowMillis = now)
+        val sameAgain = WidgetPlanner.plan(rows, nowMillis = now)
+        val nowOverdue = WidgetPlanner.plan(rows, nowMillis = now + 11 * minute)
+        val recorded = WidgetPlanner.plan(
+            listOf(row(id = 1, minutesFromNow = 10, status = "TAKEN", taken = 1.0)),
+            nowMillis = now,
+        )
+
+        assertThat(sameAgain.fingerprint()).isEqualTo(before.fingerprint())
+        assertThat(nowOverdue.fingerprint()).isNotEqualTo(before.fingerprint())
+        assertThat(recorded.fingerprint()).isNotEqualTo(before.fingerprint())
     }
 
     @Test

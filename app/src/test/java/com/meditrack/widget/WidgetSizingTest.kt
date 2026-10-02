@@ -24,19 +24,13 @@ class WidgetSizingTest {
         "4x4" to 280f,
     )
 
-    /** Four columns wide, in dp, using the platform's `70n - 30` formula. */
-    private val width = 250f
-
     private fun layoutAt(
         heightDp: Float,
         itemCount: Int = 4,
         itemLimit: Int = WidgetSizing.DEFAULT_ITEM_LIMIT,
         fontScale: Float = 1f,
-        quickActions: Boolean = true,
     ) = WidgetSizing.layoutFor(
-        widthDp = width,
         heightDp = heightDp,
-        quickActionsEnabled = quickActions,
         itemCount = itemCount,
         itemLimit = itemLimit,
         fontScale = fontScale,
@@ -234,47 +228,6 @@ class WidgetSizingTest {
             assertThat(layout.reservedHeightDp).isAtMost(200f)
             assertThat(layout.rowLimit).isAtLeast(1)
         }
-    }
-
-    // ------------------------------------------------------------ quick actions
-
-    @Test
-    fun `quick actions are offered when a row is tall enough to tap`() {
-        assertThat(layoutAt(heightDp = 140f).showQuickActions).isTrue()
-    }
-
-    @Test
-    fun `quick actions are withheld when the user turned them off`() {
-        assertThat(layoutAt(heightDp = 280f, quickActions = false).showQuickActions).isFalse()
-    }
-
-    @Test
-    fun `quick actions are withheld on a tile too narrow to hold them`() {
-        val narrow = WidgetSizing.layoutFor(
-            widthDp = 150f,
-            heightDp = 280f,
-            quickActionsEnabled = true,
-            itemCount = 4,
-        )
-        assertThat(narrow.showQuickActions).isFalse()
-    }
-
-    @Test
-    fun `quick actions are withheld in the dense single-line form`() {
-        // 40dp of tile leaves 32dp of row, which is less than the 32dp buttons plus their margin.
-        val strip = layoutAt(heightDp = 40f)
-        assertThat(strip.singleLineRows).isTrue()
-        assertThat(strip.showQuickActions).isFalse()
-    }
-
-    @Test
-    fun `a one-row tile with a comfortable row can still offer quick actions`() {
-        // At 70dp the single row is 50dp tall, which is a fine place for the +/- buttons - a
-        // glanceable widget you can also record from is the point of the 4x1 footprint.
-        val tile = layoutAt(heightDp = 70f)
-        assertThat(tile.rowLimit).isEqualTo(1)
-        assertThat(tile.singleLineRows).isFalse()
-        assertThat(tile.showQuickActions).isTrue()
     }
 
     // ------------------------------------------------------------ overflow hint

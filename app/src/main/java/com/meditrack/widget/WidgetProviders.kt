@@ -1,5 +1,6 @@
 package com.meditrack.widget
 
+import android.content.ComponentName
 import android.content.Context
 import androidx.glance.GlanceId
 import androidx.glance.appwidget.GlanceAppWidget
@@ -7,8 +8,10 @@ import androidx.glance.appwidget.GlanceAppWidgetReceiver
 import androidx.glance.appwidget.SizeMode
 import androidx.glance.appwidget.provideContent
 import androidx.glance.appwidget.updateAll
+import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.ExistingWorkPolicy
 import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import dagger.hilt.EntryPoint
 import dagger.hilt.EntryPoints
@@ -18,36 +21,26 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import java.util.concurrent.TimeUnit
 
 /**
- * The four widget footprints offered in the launcher's picker.
+ * The home-screen widget.
  *
- * All of them are **four columns wide**; only the default height differs. A medication list is read
- * top to bottom, so what a user actually wants to choose between is "how many doses do I want to see
- * without opening the app", and four columns is the narrowest that still fits a medication name, a
- * time, a quantity and a status side by side.
- *
- * | Entry | Default | Resizable down to |
- * | --- | --- | --- |
- * | [MediTrackWidgetCompact] | 4x1 | 4x1 |
- * | [MediTrackWidgetShort] | 4x2 | 4x1 |
- * | [MediTrackWidgetMedium] | 4x3 | 4x1 |
- * | [MediTrackWidgetTall] | 4x4 | 4x1 |
- *
- * Every entry can be resized freely in both directions, but never below the 4x1 floor declared in
- * its `appwidget-provider` metadata - which is what makes it impossible to create a tile small
- * enough to clip its own content, the way the old 2x2 default could.
+ * There is exactly one of these in the launcher's picker. An earlier revision shipped a family of
+ * four fixed footprints (4x1 … 4x4); that was more choice than the feature warrants, since every one
+ * of them was resizable anyway and the layout is derived from the tile's real size. The user now
+ * picks "药准时" once and drags it to the shape they want.
  */
-abstract class MediTrackWidgetBase : GlanceAppWidget() {
+class MediTrackWidget : GlanceAppWidget() {
 
     /**
      * Compose per size, not once per widget.
      *
      * This is load-bearing, not a nicety. Glance's default ([SizeMode.Single]) composes the widget
      * once and keeps that composition when the user drags the tile to a different size, so a tile
-     * created at one size renders that layout forever. Because the layout here is computed from
-     * [androidx.glance.LocalSize], that would mean a resized tile showing the wrong row count - the
-     * exact class of "显示错乱" this family of sizes exists to remove.
+     * created small renders that small layout forever. Because the layout here is computed from
+     * [androidx.glance.LocalSize], that would mean a dragged-out tile showing the wrong row count -
+     * the exact class of "显示错乱" this design exists to avoid.
      */
     override val sizeMode: SizeMode = SizeMode.Exact
 
@@ -56,42 +49,36 @@ abstract class MediTrackWidgetBase : GlanceAppWidget() {
         val content = runCatching { builder?.build() }.getOrNull() ?: WidgetContentBuilder.EMPTY
         val options = runCatching { builder?.displayOptions() }.getOrNull() ?: WidgetDisplayOptions()
 
+        // Remember what is on screen, so the frequent refresh tick can tell whether a redraw would
+        // actually change anything.
+        builder?.markRendered(content)
+
         provideContent {
             MediTrackWidgetContent(content, options)
         }
     }
 
-    private fun entryPoint(context: Context): WidgetEntryPoint =
-        EntryPoints.get(context.applicationContext, WidgetEntryPoint::class.java)
+    private fun entryPoint(context: Context): MediTrackWidgetEntryPoint =
+        EntryPoints.get(context.applicationContext, MediTrackWidgetEntryPoint::class.java)
 
     /** The slice of the object graph the widget needs; nothing else is reachable from here. */
     @EntryPoint
     @InstallIn(SingletonComponent::class)
-    interface WidgetEntryPoint {
+    interface MediTrackWidgetEntryPoint {
         fun contentBuilder(): WidgetContentBuilder
     }
 }
 
-/** 4x1 - the minimum: one dose, no title. */
-class MediTrackWidgetCompact : MediTrackWidgetBase()
-
-/** 4x2 - the everyday default. */
-class MediTrackWidgetShort : MediTrackWidgetBase()
-
-/** 4x3 - a morning-and-evening schedule at a glance. */
-class MediTrackWidgetMedium : MediTrackWidgetBase()
-
-/** 4x4 - a full day. */
-class MediTrackWidgetTall : MediTrackWidgetBase()
-
 /**
- * Shared receiver behaviour.
+ * AppWidgetProvider entry point.
  *
  * Glance renders the layout; the receiver exists to react to the system broadcasts. The refresh is
  * handed to WorkManager rather than done inline because `onUpdate` runs on the main thread and the
  * payload requires a database read.
  */
-abstract class MediTrackWidgetReceiverBase : GlanceAppWidgetReceiver() {
+class MediTrackWidgetReceiver : GlanceAppWidgetReceiver() {
+
+    override val glanceAppWidget: GlanceAppWidget = MediTrackWidget()
 
     override fun onUpdate(
         context: Context,
@@ -111,63 +98,49 @@ abstract class MediTrackWidgetReceiverBase : GlanceAppWidgetReceiver() {
 
     override fun onDisabled(context: Context) {
         super.onDisabled(context)
-        // No tile of *this* footprint is placed any more. The periodic refresher is only stopped when
-        // the last of the four has gone, otherwise removing one size would silently freeze the others.
-        if (!WidgetRefresh.anyPlaced(context)) WidgetRefresh.stopPeriodic(context)
+        // Nothing is placed any more; stop waking up for it.
+        WidgetRefresh.stopPeriodic(context)
     }
 }
 
-class MediTrackWidgetCompactReceiver : MediTrackWidgetReceiverBase() {
-    override val glanceAppWidget: GlanceAppWidget = MediTrackWidgetCompact()
-}
-
-class MediTrackWidgetShortReceiver : MediTrackWidgetReceiverBase() {
-    override val glanceAppWidget: GlanceAppWidget = MediTrackWidgetShort()
-}
-
-class MediTrackWidgetMediumReceiver : MediTrackWidgetReceiverBase() {
-    override val glanceAppWidget: GlanceAppWidget = MediTrackWidgetMedium()
-}
-
-class MediTrackWidgetTallReceiver : MediTrackWidgetReceiverBase() {
-    override val glanceAppWidget: GlanceAppWidget = MediTrackWidgetTall()
-}
-
 /**
- * Refreshes every footprint together.
+ * Everything that refreshes the widget goes through here.
  *
- * Each [GlanceAppWidget] subclass owns its own receiver, and `updateAll` only reaches the widget ids
- * belonging to the receiver it resolves from the class. With four variants that means a single
- * `updateAll` call would update exactly one of them and leave three showing yesterday's doses - so
- * every refresh in the app goes through this object instead.
+ * ## Why not simply redraw on a timer
+ *
+ * The refresh interval can be as short as ten seconds. Redrawing a RemoteViews into the launcher's
+ * process that often would be pure waste: nothing on this tile ticks, so nine redraws in ten would
+ * paint exactly what is already there. [refreshIfChanged] therefore compares a fingerprint of the
+ * payload first, which turns a short interval into a cheap poll that makes the tile *prompt* rather
+ * than *busy*.
  */
 object WidgetRefresh {
 
-    /** The four variants, constructed on demand. Cheap: [GlanceAppWidget] is stateless. */
-    private fun allWidgets(): List<GlanceAppWidget> = listOf(
-        MediTrackWidgetCompact(),
-        MediTrackWidgetShort(),
-        MediTrackWidgetMedium(),
-        MediTrackWidgetTall(),
-    )
+    /** Rebuilds and redraws unconditionally; used after a write, where the change is already known. */
+    suspend fun refreshNow(context: Context) {
+        runCatching { MediTrackWidget().updateAll(context) }
+    }
 
-    /** The four receiver classes, used to ask the system whether anything is placed. */
-    private fun allReceivers(): List<Class<out MediTrackWidgetReceiverBase>> = listOf(
-        MediTrackWidgetCompactReceiver::class.java,
-        MediTrackWidgetShortReceiver::class.java,
-        MediTrackWidgetMediumReceiver::class.java,
-        MediTrackWidgetTallReceiver::class.java,
-    )
+    /**
+     * Redraws only if the visible payload differs from what is already on screen.
+     *
+     * @return true when a redraw was issued
+     */
+    suspend fun refreshIfChanged(context: Context, builder: WidgetContentBuilder): Boolean {
+        val content = runCatching { builder.build() }.getOrNull() ?: return false
+        if (!builder.hasChangedSinceRender(content)) return false
+        builder.markRendered(content)
+        refreshNow(context)
+        return true
+    }
 
-    /** True while at least one tile of any footprint is on the home screen. */
-    fun anyPlaced(context: Context): Boolean = runCatching {
+    /** True while a tile is actually on the home screen; the ticker polls only if so. */
+    fun isPlaced(context: Context): Boolean = runCatching {
         val manager = android.appwidget.AppWidgetManager.getInstance(context)
-        allReceivers().any { receiver ->
-            manager.getAppWidgetIds(android.content.ComponentName(context, receiver)).isNotEmpty()
-        }
-    }.getOrDefault(true)
+        manager.getAppWidgetIds(ComponentName(context, MediTrackWidgetReceiver::class.java)).isNotEmpty()
+    }.getOrDefault(false)
 
-    /** Stops the periodic refresher; used once the last tile has been removed. */
+    /** Stops the fallback refresher. */
     fun stopPeriodic(context: Context) {
         runCatching {
             WorkManager.getInstance(context).cancelUniqueWork(WidgetUpdateWorker.UNIQUE_NAME)
@@ -175,7 +148,7 @@ object WidgetRefresh {
     }
 
     /**
-     * Schedules an immediate refresh of every footprint.
+     * Schedules an immediate refresh.
      *
      * Safe to call from anywhere (repository writes, notification actions, receivers). Uses KEEP so a
      * burst of writes collapses into a single refresh instead of queueing dozens.
@@ -197,11 +170,33 @@ object WidgetRefresh {
         }
     }
 
-    /** Direct refresh used by the worker and by anything already on a background dispatcher. */
-    suspend fun refreshNow(context: Context) {
-        for (widget in allWidgets()) {
-            // One variant failing must not stop the other three from updating.
-            runCatching { widget.updateAll(context) }
+    /**
+     * Arms the 15-minute fallback refresher.
+     *
+     * This is **not** what honours the user's chosen interval: WorkManager's floor for periodic work
+     * is fifteen minutes, so it cannot serve any of the intervals on offer. It exists so the tile
+     * still updates when the background guard service - the only thing that can drive a sub-minute to
+     * ten-minute cadence - is switched off.
+     */
+    fun applyFallback(context: Context) {
+        runCatching {
+            val request = PeriodicWorkRequestBuilder<WidgetUpdateWorker>(
+                FALLBACK_INTERVAL_MINUTES,
+                TimeUnit.MINUTES,
+            )
+                .setInitialDelay(1, TimeUnit.MINUTES)
+                .addTag(WidgetUpdateWorker.WORK_TAG)
+                .build()
+
+            WorkManager.getInstance(context).enqueueUniquePeriodicWork(
+                WidgetUpdateWorker.UNIQUE_NAME,
+                // UPDATE keeps the existing schedule rather than resetting it on every launch.
+                ExistingPeriodicWorkPolicy.UPDATE,
+                request,
+            )
         }
     }
+
+    /** WorkManager's own floor for periodic work; the real interval comes from the guard service. */
+    const val FALLBACK_INTERVAL_MINUTES = 15L
 }

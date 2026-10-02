@@ -20,7 +20,6 @@ import javax.inject.Singleton
  * option.
  */
 data class WidgetDisplayOptions(
-    val quickActions: Boolean = true,
     val showCompleted: Boolean = true,
     /**
      * The user's ceiling on how many doses a tile may show.
@@ -35,13 +34,30 @@ data class WidgetDisplayOptions(
 /**
  * Builds the widget payload.
  *
- * Separated from the Glance class so the same payload can be produced by the WorkManager refresher
- * and by unit tests, and so the widget's `EntryPoint` only has to expose one object.
+ * Separated from the Glance class so the same payload can be produced by the refreshers and by unit
+ * tests, and so the widget's `EntryPoint` only has to expose one object.
+ *
+ * It also owns the "what is currently on screen" fingerprint, because it is the one component both
+ * the render path and the refresh tick go through - and the comparison between them is what lets the
+ * refresh interval be as short as ten seconds without redrawing ten times a minute for nothing.
  */
 @Singleton
 class WidgetContentBuilder @Inject constructor(
     private val settingsRepository: SettingsRepository,
 ) {
+
+    /** Fingerprint of the payload most recently handed to the launcher. */
+    @Volatile
+    private var renderedFingerprint: String? = null
+
+    /** Records what the widget is now showing. Called from the render path. */
+    fun markRendered(content: WidgetContent) {
+        renderedFingerprint = content.fingerprint()
+    }
+
+    /** True when [content] differs from what the widget is already showing. */
+    fun hasChangedSinceRender(content: WidgetContent): Boolean =
+        content.fingerprint() != renderedFingerprint
 
     suspend fun build(): WidgetContent {
         val prefs = settingsRepository.current()
@@ -70,18 +86,15 @@ class WidgetContentBuilder @Inject constructor(
                 )
             }
         val content = WidgetPlanner.plan(rows, prefs.use24HourFormat)
-        return if (prefs.widgetShowCompleted) {
-            content
-        } else {
-            content.copy(items = content.items.filter { it.priority != WidgetPriority.DONE })
-        }
+        // The hide-completed rule lives on WidgetContent so this path and the repository's cannot
+        // drift apart and make the tile flicker between two different lists.
+        return content.visible(showCompleted = prefs.widgetShowCompleted)
     }
 
     /** The user's display preferences, read once per render. */
     suspend fun displayOptions(): WidgetDisplayOptions {
         val prefs = settingsRepository.current()
         return WidgetDisplayOptions(
-            quickActions = prefs.widgetQuickActions,
             showCompleted = prefs.widgetShowCompleted,
             itemLimit = prefs.widgetItemLimit,
         )

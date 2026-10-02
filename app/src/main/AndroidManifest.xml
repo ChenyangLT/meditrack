@@ -142,63 +142,24 @@
             android:exported="false" />
 
         <!--
-          Home-screen widget.
+          Home-screen widget: one entry, resizable.
 
-          Four entries, one per default height, all four columns wide: 4x1, 4x2, 4x3 and 4x4. Each
-          needs its own receiver because an `appwidget-provider` is bound to exactly one ComponentName,
-          and each receiver needs its own `GlanceAppWidget` subclass because Glance resolves the
-          widgets to update from that class.
-
-          `exported="true"` is required so the launcher can bind to them. `WidgetRefresh` updates all
-          four together - a single `updateAll` call would otherwise refresh only the one variant it
-          was called on and leave the others showing yesterday's doses.
+          `exported="true"` is required so the launcher can bind to it. An earlier revision declared
+          four receivers - one per fixed footprint - so the picker could offer 4x1 through 4x4. That
+          was more choice than the feature warrants: every one of them was freely resizable anyway,
+          and the layout is derived from the tile's real size, so a single entry the user drags to the
+          shape they want is both simpler and harder to get wrong.
         -->
         <receiver
-            android:name=".widget.MediTrackWidgetCompactReceiver"
+            android:name=".widget.MediTrackWidgetReceiver"
             android:exported="true"
-            android:label="@string/widget_label_compact">
+            android:label="@string/widget_label">
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
             </intent-filter>
             <meta-data
                 android:name="android.appwidget.provider"
-                android:resource="@xml/meditrack_widget_4x1" />
-        </receiver>
-
-        <receiver
-            android:name=".widget.MediTrackWidgetShortReceiver"
-            android:exported="true"
-            android:label="@string/widget_label_short">
-            <intent-filter>
-                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
-            </intent-filter>
-            <meta-data
-                android:name="android.appwidget.provider"
-                android:resource="@xml/meditrack_widget_4x2" />
-        </receiver>
-
-        <receiver
-            android:name=".widget.MediTrackWidgetMediumReceiver"
-            android:exported="true"
-            android:label="@string/widget_label_medium">
-            <intent-filter>
-                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
-            </intent-filter>
-            <meta-data
-                android:name="android.appwidget.provider"
-                android:resource="@xml/meditrack_widget_4x3" />
-        </receiver>
-
-        <receiver
-            android:name=".widget.MediTrackWidgetTallReceiver"
-            android:exported="true"
-            android:label="@string/widget_label_tall">
-            <intent-filter>
-                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
-            </intent-filter>
-            <meta-data
-                android:name="android.appwidget.provider"
-                android:resource="@xml/meditrack_widget_4x4" />
+                android:resource="@xml/meditrack_widget_info" />
         </receiver>
 
         <!--

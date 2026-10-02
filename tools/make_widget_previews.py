@@ -1,10 +1,10 @@
 """
-Generates the widget-picker preview drawables for the four footprints.
+Generates the widget-picker preview drawable.
 
-The previews are generated rather than hand-drawn so their geometry is derived from the same budget
-`WidgetSizing` uses on the device: same padding steps, same 26dp header block, same 44dp row unit.
-A hand-drawn preview drifts from the real widget the first time either changes, and a preview that
-lies is worse than no preview - it is what the user picks a size from.
+The preview is generated rather than hand-drawn so its geometry is derived from the same budget
+`WidgetSizing` uses on the device: same padding steps, same header block, same row unit. A hand-drawn
+preview drifts from the real widget the first time either changes, and a preview that lies is worse
+than no preview - it is what the user picks the widget from.
 
 Run from the project root:  python tools/make_widget_previews.py
 """
@@ -17,28 +17,40 @@ OUT_DIR = os.path.join(ROOT, "app", "src", "main", "res", "drawable")
 WIDTH = 250
 CELL_DP = 70
 
+# The launcher places the single widget at 4x2 (see targetCellWidth/Height in the metadata).
+DEFAULT_ROWS = 2
+
 # Mirrors WidgetSizing at the default font scale.
 ROW_PADDING = 8.0
 ROW_TEXT_BASE = 30.0
 ROW_SPACING = 4.0
 HEADER_CONTENT = 18.0
 HEADER_GAP = 6.0
-OVERFLOW_HINT = 16.0
-SINGLE_LINE_THRESHOLD = 52.0
 DEFAULT_ITEM_LIMIT = 4
 
 ROW_UNIT = ROW_PADDING + ROW_TEXT_BASE + ROW_SPACING
 HEADER_BLOCK = HEADER_CONTENT + HEADER_GAP
 
-BG = "#FFFBF7F2"
+# Mirrors the light-launcher values in res/values/colors_widget.xml.
+BG = "#FFFFFBF7"
 TITLE = "#FF1B1C1E"
-MUTED = "#FF8A8F98"
-ACCENT = "#FF3DBFA0"
+MUTED = "#FF5C5F66"
+YELLOW = "#FF8A6100"
+RED = "#FFB3261E"
+BLUE = "#FF1D5FA8"
+GREEN = "#FF1F7A45"
+YELLOW_TINT = "#1A8A6100"
+RED_TINT = "#1AB3261E"
+TRANSPARENT = "#00000000"
 
-# One colour per row, following the widget's own priority ramp:
-# overdue (red), due soon (orange), later today (blue), taken (green).
-ROW_COLORS = ["#FFD3453F", "#FFE08A2B", "#FF3C7FD1", "#FF2E9E5B"]
-ROW_TINTS = ["#1AD3453F", "#1AE08A2B", "#00000000", "#00000000"]
+# One entry per row, in the order the planner produces them: yellow (due within 30 minutes) first,
+# then red (its time has passed), then the neutral and completed rows.
+ROWS = [
+    (YELLOW, YELLOW_TINT),
+    (RED, RED_TINT),
+    (BLUE, TRANSPARENT),
+    (GREEN, TRANSPARENT),
+]
 
 
 def padding_for(height):
@@ -50,7 +62,7 @@ def padding_for(height):
 
 
 def rounded_rect(x, y, w, h, r, color):
-    """A rounded rectangle as an SVG-style path, with the radius clamped to the smaller side."""
+    """A rounded rectangle as a vector path, with the radius clamped to the smaller side."""
     r = max(0, min(r, w / 2, h / 2))
     return (
         f'    <path android:fillColor="{color}" android:pathData="'
@@ -67,17 +79,13 @@ def circle(cx, cy, r, color):
     )
 
 
-def build(rows):
-    """Builds the vector for a footprint whose default height shows `rows` doses."""
-    height = CELL_DP * rows
+def build():
+    height = CELL_DP * DEFAULT_ROWS
     pad = padding_for(height)
     available = height - 2 * pad
 
-    # Mirrors WidgetSizing.layoutFor at the default font scale, including the rule that the overflow
-    # hint may only use space the rows were not going to occupy anyway.
-    #
-    # The dense single-line fallback is not modelled here: it only applies below ~50dp, and the
-    # shortest footprint offered is 4x1 at 70dp.
+    # Mirrors WidgetSizing.layoutFor at the default font scale. The dense single-line fallback is not
+    # modelled: it only applies below ~50dp, and this preview is drawn at 140dp.
     show_header = int((available - HEADER_BLOCK) / ROW_UNIT) >= 1
     header_block = HEADER_BLOCK if show_header else 0.0
     usable = available - header_block
@@ -89,49 +97,50 @@ def build(rows):
     paths = [rounded_rect(0, 0, WIDTH, height, 16, BG)]
 
     if show_header:
-        icon_y = pad + 4
-        paths.append(rounded_rect(pad, icon_y, 18, 18, 9, "#1A3DBFA0"))
-        paths.append(circle(pad + 9, icon_y + 9, 4, ACCENT))
-        paths.append(rounded_rect(pad + 24, icon_y + 6, 44, 6, 3, TITLE))
+        # A 16dp glyph beside the title, matching the composable.
+        gy = pad + 3
+        paths.append(circle(pad + 8, gy + 8, 5, BLUE))
+        paths.append(rounded_rect(pad + 20, gy + 5, 46, 6, 3, TITLE))
+        paths.append(rounded_rect(WIDTH - pad - 34, gy + 5, 34, 6, 3, MUTED))
 
     for i in range(row_limit):
         top = pad + header_block + i * slot
-        band_h = slot - 4
-        color = ROW_COLORS[i % len(ROW_COLORS)]
-        tint = ROW_TINTS[i % len(ROW_TINTS)]
-        if tint != "#00000000":
+        band_h = slot - ROW_SPACING
+        color, tint = ROWS[i % len(ROWS)]
+        if tint != TRANSPARENT:
             paths.append(rounded_rect(pad, top, WIDTH - 2 * pad, band_h, 12, tint))
 
         cy = top + band_h / 2
-        paths.append(circle(pad + 14, cy, 5, color))
-        paths.append(rounded_rect(pad + 26, cy - 8, 92, 6, 3, TITLE))
-        paths.append(rounded_rect(pad + 26, cy + 1, 56, 5, 2.5, MUTED))
-        paths.append(rounded_rect(WIDTH - pad - 46, cy - 3, 40, 5, 2.5, color))
+        paths.append(circle(pad + 13, cy, 5, color))
+        paths.append(circle(pad + 30, cy, 8, color))
+        paths.append(rounded_rect(pad + 44, cy - 8, 92, 6, 3, TITLE))
+        paths.append(rounded_rect(pad + 44, cy + 1, 56, 5, 2.5, MUTED))
+        paths.append(rounded_rect(WIDTH - pad - 44, cy - 3, 38, 5, 2.5, color))
 
     body = "\n".join(paths)
     return (
         '<?xml version="1.0" encoding="utf-8"?>\n'
-        f"<!--\n"
-        f"  Widget picker preview: the {4}x{rows} footprint.\n\n"
-        f"  Generated by tools/make_widget_previews.py from the same layout budget WidgetSizing uses\n"
-        f"  on the device, so the preview cannot drift from the real widget. Do not edit by hand.\n"
-        f"-->\n"
-        f'<vector xmlns:android="http://schemas.android.com/apk/res/android"\n'
+        "<!--\n"
+        f"  Widget picker preview: the single 4x{DEFAULT_ROWS} widget.\n\n"
+        "  Generated by tools/make_widget_previews.py from the same layout budget WidgetSizing uses\n"
+        "  on the device and the same colours res/values/colors_widget.xml defines, so the preview\n"
+        "  cannot drift from the real widget. Do not edit by hand.\n"
+        "-->\n"
+        '<vector xmlns:android="http://schemas.android.com/apk/res/android"\n'
         f'    android:width="{WIDTH}dp"\n'
         f'    android:height="{height}dp"\n'
         f'    android:viewportWidth="{WIDTH}"\n'
         f'    android:viewportHeight="{height}">\n\n'
         f"{body}\n"
-        f"</vector>\n"
+        "</vector>\n"
     )
 
 
 def main():
-    for rows in (1, 2, 3, 4):
-        path = os.path.join(OUT_DIR, f"ic_widget_preview_4x{rows}.xml")
-        with open(path, "w", encoding="utf-8", newline="\n") as fh:
-            fh.write(build(rows))
-        print(f"wrote {os.path.relpath(path, ROOT)}")
+    path = os.path.join(OUT_DIR, "ic_widget_preview.xml")
+    with open(path, "w", encoding="utf-8", newline="\n") as fh:
+        fh.write(build())
+    print(f"wrote {os.path.relpath(path, ROOT)}")
 
 
 if __name__ == "__main__":

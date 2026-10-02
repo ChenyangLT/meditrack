@@ -4,11 +4,20 @@
       Widget surface colours.
 
       A widget is rendered by the launcher process, so it must resolve its own light/dark colours
-      instead of inheriting a Compose colour scheme. Two resource names are declared so the widget
-      can pick the right one for the launcher's current configuration:
-        - widget_surface_*     : card background
-        - widget_on_surface_*  : primary text
+      instead of inheriting a Compose colour scheme. The same resource names are declared again in
+      `values-night`, which is what makes them follow the launcher's theme:
+        - widget_surface_*            : card background
+        - widget_on_surface_*         : primary text
         - widget_on_surface_variant_* : secondary text
+
+      The dose-status colours below are resolved the same way, and deliberately so. They used to be
+      fixed ARGB values so that "red always means missed" regardless of theme - but no single colour
+      can reach readable contrast against *both* a near-white and a near-black surface: the required
+      luminance windows do not overlap. A fixed amber, for instance, is legible on the dark surface
+      and barely visible on the light one. Keeping the hue and letting the lightness follow the theme
+      preserves the meaning while actually being readable in both.
+
+      Light-launcher values (dark text on a warm white card). Contrast measured against #FFFFFBF7.
     -->
     <color name="widget_surface_light">#FFFFFBF7</color>
     <color name="widget_surface_dark">#FF1C1B1F</color>
@@ -16,4 +25,20 @@
     <color name="widget_on_surface_dark">#FFE6E1E5</color>
     <color name="widget_on_surface_variant_light">#FF5C5F66</color>
     <color name="widget_on_surface_variant_dark">#FFC4C7CE</color>
+
+    <!--
+      Dose statuses. The three the product spec names - yellow / red / green - plus the neutral
+      "later today" and the muted "skipped".
+
+      These are the *text and dot* colours, so they are held to text contrast (>= 4.5:1 here).
+    -->
+    <color name="widget_status_due_soon">#FF8A6100</color>
+    <color name="widget_status_missed">#FFB3261E</color>
+    <color name="widget_status_later">#FF1D5FA8</color>
+    <color name="widget_status_taken">#FF1F7A45</color>
+    <color name="widget_status_skipped">#FF5A5F68</color>
+
+    <!-- Row washes. A tint only has to separate the row, so a low alpha is right. -->
+    <color name="widget_row_due_soon">#1A8A6100</color>
+    <color name="widget_row_missed">#1AB3261E</color>
 </resources>

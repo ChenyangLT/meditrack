@@ -661,26 +661,39 @@ fun SettingsScreen(
                     )
                     Text(
                         text = "小组件能显示几条，由它在桌面上的实际高度决定；这里设置的是上限。" +
-                            "例如选「4 条」时，4×2 的小组件仍然只显示 2 条。",
+                            "把小组件拖得更高，就能显示更多条。",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     NumberOptionRow(
                         title = "刷新间隔",
-                        options = listOf(15, 30, 60),
-                        selected = preferences.widgetRefreshMinutes,
-                        labelOf = { "$it 分钟" },
-                        onSelect = viewModel::setWidgetRefreshMinutes,
+                        options = listOf(10, 30, 60, 300, 600),
+                        selected = preferences.widgetRefreshSeconds,
+                        labelOf = { seconds ->
+                            when {
+                                seconds < 60 -> "$seconds 秒"
+                                else -> "${seconds / 60} 分钟"
+                            }
+                        },
+                        onSelect = viewModel::setWidgetRefreshSeconds,
                     )
-                    SwitchRow(
-                        title = "显示加减按钮",
-                        subtitle = "可以直接在桌面上记录服药数量",
-                        checked = preferences.widgetQuickActions,
-                        onCheckedChange = viewModel::setWidgetQuickActions,
+                    Text(
+                        text = "间隔越短，小组件越能及时反映变化（进入 30 分钟窗口、变成未服药、记录已服）。" +
+                            "内容没有变化时不会重绘，所以短间隔并不会一直耗电。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
+                    if (!preferences.guardServiceEnabled) {
+                        Text(
+                            text = "⚠️ 后台守护服务已关闭，小组件只能每 15 分钟刷新一次。要使用 10 秒～10 分钟" +
+                                "的间隔，请在「提醒可靠性」中开启后台守护服务。",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error,
+                        )
+                    }
                     SwitchRow(
                         title = "显示已服用",
-                        subtitle = "关闭后只显示还没吃的药",
+                        subtitle = "关闭后只显示还没吃的药（未服药仍会保留）",
                         checked = preferences.widgetShowCompleted,
                         onCheckedChange = viewModel::setWidgetShowCompleted,
                     )

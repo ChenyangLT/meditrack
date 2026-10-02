@@ -212,12 +212,21 @@ data class UserPreferences(
     val deferWhileScreenOff: Boolean = true,
 
     // --------------------------------------------------------------- widget
-    /** How many rows a 4x2 / 4x4 widget shows. */
+    /** The user's ceiling on how many dose rows the widget shows. */
     val widgetItemLimit: Int = WidgetPlannerDefaults.ITEM_LIMIT,
-    /** Refresh cadence for the widget, in minutes (15 or 30). */
-    val widgetRefreshMinutes: Int = 30,
-    /** Show the "+" / "-" buttons on the widget rows. */
-    val widgetQuickActions: Boolean = true,
+    /**
+     * How often the widget is re-checked, in **seconds**.
+     *
+     * The offered range is 10 seconds to 10 minutes. That is far below anything WorkManager or
+     * `AppWidgetProviderInfo.updatePeriodMillis` can express - their floors are 15 and 30 minutes -
+     * so a short interval is driven by the background guard service's ticker, and this setting only
+     * has effect while that service is running.
+     *
+     * A short interval does not mean a redraw every few seconds: the payload is fingerprinted first,
+     * so the launcher is only disturbed when a dose actually changes state. What the interval buys is
+     * *promptness*, which is the thing a medication widget is judged on.
+     */
+    val widgetRefreshSeconds: Int = 30,
     /** Show taken doses at the bottom of the widget list. */
     val widgetShowCompleted: Boolean = true,
 

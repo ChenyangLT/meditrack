@@ -14,11 +14,16 @@ import androidx.core.app.ServiceCompat
 import com.meditrack.MainActivity
 import com.meditrack.R
 import com.meditrack.data.prefs.SettingsRepository
+import com.meditrack.widget.WidgetContentBuilder
+import com.meditrack.widget.WidgetRefresh
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
@@ -62,8 +67,12 @@ class ReminderGuardService : Service() {
     @Inject lateinit var settingsRepository: SettingsRepository
     @Inject lateinit var registry: ReminderAlarmRegistry
     @Inject lateinit var notifier: DoseNotifier
+    @Inject lateinit var widgetContentBuilder: WidgetContentBuilder
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+
+    /** The widget re-check loop, or null while it is not running. */
+    private var widgetTicker: Job? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -90,8 +99,45 @@ class ReminderGuardService : Service() {
             registry.noteGuardAlive(System.currentTimeMillis())
             updateNotification(report)
         }
+        startWidgetTicker()
         // Recreated after being killed for memory, with a null intent.
         return START_STICKY
+    }
+
+    /**
+     * Drives the widget's refresh cadence.
+     *
+     * The user can ask for the widget to be re-checked as often as every ten seconds. Neither
+     * mechanism that normally refreshes a widget can express that - `WorkManager`'s floor for
+     * periodic work is fifteen minutes and `AppWidgetProviderInfo.updatePeriodMillis` bottoms out at
+     * thirty - so a running foreground service is the only thing that can, which is another reason
+     * the guard is on by default.
+     *
+     * Two honest caveats, both deliberate rather than oversights:
+     *
+     *  - **A sleeping device does not tick.** Coroutine delays run on the monotonic clock, which stops
+     *    while the phone is suspended. That costs nothing in practice: the widget is only *visible*
+     *    when the screen is on, and the loop resumes within one interval of the phone waking.
+     *  - **A tick is not a redraw.** The payload is fingerprinted first, so a ten-second interval
+     *    costs one small database read and only disturbs the launcher when a dose actually changes
+     *    state. That is what makes a short interval honest rather than wasteful.
+     */
+    private fun startWidgetTicker() {
+        if (widgetTicker?.isActive == true) return
+        widgetTicker = scope.launch {
+            while (isActive) {
+                val seconds = runCatching { settingsRepository.current().widgetRefreshSeconds }
+                    .getOrDefault(DEFAULT_WIDGET_REFRESH_SECONDS)
+                    .coerceIn(SettingsRepository.MIN_WIDGET_REFRESH_SECONDS, SettingsRepository.MAX_WIDGET_REFRESH_SECONDS)
+                delay(seconds * 1_000L)
+
+                // Nothing placed means nothing to keep current.
+                if (!WidgetRefresh.isPlaced(this@ReminderGuardService)) continue
+                runCatching {
+                    WidgetRefresh.refreshIfChanged(this@ReminderGuardService, widgetContentBuilder)
+                }.onFailure { Log.w(TAG, "widget refresh tick failed", it) }
+            }
+        }
     }
 
     /**
@@ -112,6 +158,7 @@ class ReminderGuardService : Service() {
         // If the process dies before the write lands it does not matter: the health check also treats
         // a stale timestamp as "not running", so the worst case is a delayed answer, never a wrong
         // "protected" one.
+        widgetTicker?.cancel()
         CoroutineScope(SupervisorJob() + Dispatchers.IO).launch { registry.markGuardStopped() }
         scope.cancel()
         super.onDestroy()
@@ -198,6 +245,9 @@ class ReminderGuardService : Service() {
 
         private const val RESTART_REQUEST_CODE = 3
         private const val RESTART_DELAY_MILLIS = 2_000L
+
+        /** Mirrors the shipped default, used only when the preference cannot be read. */
+        private const val DEFAULT_WIDGET_REFRESH_SECONDS = 30
 
         /**
          * Starts the guard if it is wanted.

@@ -2,7 +2,6 @@ package com.meditrack.widget
 
 import android.content.Context
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.glance.ColorFilter
@@ -15,7 +14,6 @@ import androidx.glance.action.ActionParameters
 import androidx.glance.action.actionParametersOf
 import androidx.glance.action.actionStartActivity
 import androidx.glance.action.clickable
-import androidx.glance.appwidget.action.actionRunCallback
 import androidx.glance.appwidget.cornerRadius
 import androidx.glance.background
 import androidx.glance.layout.Alignment
@@ -32,8 +30,6 @@ import androidx.glance.layout.width
 import androidx.glance.text.FontWeight
 import androidx.glance.text.Text
 import androidx.glance.text.TextStyle
-import androidx.glance.unit.ColorProvider
-import androidx.glance.unit.FixedColorProvider
 import com.meditrack.MainActivity
 import com.meditrack.R
 import com.meditrack.domain.plan.WidgetContent
@@ -41,43 +37,41 @@ import com.meditrack.domain.plan.WidgetDoseItem
 import com.meditrack.domain.plan.WidgetPriority
 
 /**
- * The home-screen widget content, shared by every size variant.
+ * The home-screen widget content.
  *
- * Ordering is owned by [com.meditrack.domain.plan.WidgetPlanner] and is the core product promise:
+ * Ordering and colour are owned by [com.meditrack.domain.plan.WidgetPlanner] and are the core
+ * product promise:
  *
- *   1. past its time and not taken  -> red
- *   2. due within 30 minutes        -> orange
- *   3. later today, still open      -> blue
- *   4. taken / skipped / missed     -> muted, pushed to the bottom
+ *   1. due within 30 minutes -> **yellow**, first
+ *   2. its time has passed   -> **red**
+ *   3. later today           -> neutral
+ *   4. taken                 -> **green**
+ *   5. skipped               -> muted
+ *
+ * When everything is done the list is replaced by the encouragement line, so a completed day reads
+ * as an achievement rather than an empty box.
  *
  * ## Sizing
  *
- * The widget is offered as a family of **four columns wide, one to four rows tall** footprints, each
- * with its own entry in the launcher's widget picker and each freely resizable from 4x1 upwards. The
- * layout is therefore derived entirely from [LocalSize] through [WidgetSizing], never from a
- * hard-coded "which variant am I" flag - the same composition has to look right at 4x1, at 4x4, and
- * at every size a user drags in between.
+ * There is exactly one widget in the launcher's picker. It lands at a comfortable size and the user
+ * drags it to whatever shape they want; the layout derives everything from [LocalSize] through
+ * [WidgetSizing], so every size between the declared floor and a full screen looks deliberate rather
+ * than clipped.
  *
- * Two consequences of that are worth naming, because both were bugs before:
+ * ## No buttons
  *
- *  - **The row count follows the real height.** A 4x2 tile has room for exactly two rows; asking for
- *    three is what used to push content off the bottom of the widget.
- *  - **The title row yields to the doses.** At 4x1 there is not enough height for a title *and* a
- *    dose row, so the title is dropped. Showing one dose without a heading is strictly better than
- *    showing a heading above a clipped dose.
- *
- * This is also why the widgets are declared with `SizeMode.Exact`: with the default single-size mode
- * the composition is not redone when the user resizes, so a tile dragged smaller keeps rendering the
- * layout it was born with.
+ * An earlier revision offered "+" / "-" per row. They are gone: recording a dose from a home-screen
+ * tap is a worse interaction than opening the app (no confirmation, no way to correct a mis-tap, and
+ * the over-dose guard cannot raise its dialog from a widget), and they consumed the width the
+ * medication name needs. A row is now a single tap target that opens that dose in the app, which is
+ * the one action a home-screen list is actually good at.
  */
 @Composable
 fun MediTrackWidgetContent(content: WidgetContent, options: WidgetDisplayOptions) {
     val size = LocalSize.current
     val context = LocalContext.current
     val layout = WidgetSizing.layoutFor(
-        widthDp = size.width.value,
         heightDp = size.height.value,
-        quickActionsEnabled = options.quickActions,
         itemCount = content.items.size,
         itemLimit = options.itemLimit,
         // 13sp is 13dp only at the default text size; the launcher renders this widget with the
@@ -114,11 +108,7 @@ fun MediTrackWidgetContent(content: WidgetContent, options: WidgetDisplayOptions
                 // Rows share the leftover height rather than each claiming a fixed one, so a taller
                 // tile breathes instead of leaving a gap at the bottom.
                 visible.forEach { item ->
-                    WidgetDoseRow(
-                        item = item,
-                        showActions = layout.showQuickActions,
-                        modifier = GlanceModifier.defaultWeight(),
-                    )
+                    WidgetDoseRow(item, GlanceModifier.defaultWeight())
                     Spacer(modifier = GlanceModifier.height(layout.rowSpacingDp.dp))
                 }
             }
@@ -150,20 +140,11 @@ private fun WidgetHeader(content: WidgetContent) {
         modifier = GlanceModifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Box(
-            modifier = GlanceModifier
-                .size(18.dp)
-                .background(FixedColorProvider(Color(0x1A3DBFA0)))
-                .cornerRadius(9.dp),
-            contentAlignment = Alignment.Center,
-        ) {
-            Image(
-                provider = ImageProvider(R.drawable.ic_widget_clock),
-                contentDescription = null,
-                modifier = GlanceModifier.size(12.dp),
-                colorFilter = ColorFilter.tint(WidgetPalette.laterToday),
-            )
-        }
+        WidgetIcons.MedicationGlyph(
+            name = HEADER_GLYPH,
+            tint = WidgetPalette.forPriority(WidgetPriority.LATER_TODAY),
+            modifier = GlanceModifier.size(16.dp),
+        )
         Spacer(modifier = GlanceModifier.width(6.dp))
         Text(
             text = context.getString(R.string.widget_title),
@@ -179,7 +160,7 @@ private fun WidgetHeader(content: WidgetContent) {
             Text(
                 text = context.getString(R.string.widget_outstanding, content.outstanding),
                 style = TextStyle(
-                    color = WidgetPalette.dueSoon,
+                    color = WidgetPalette.onSurfaceVariant,
                     fontSize = 12.sp,
                     fontWeight = FontWeight.Medium,
                 ),
@@ -190,32 +171,29 @@ private fun WidgetHeader(content: WidgetContent) {
                 provider = ImageProvider(R.drawable.ic_widget_check),
                 contentDescription = null,
                 modifier = GlanceModifier.size(14.dp),
-                colorFilter = ColorFilter.tint(WidgetPalette.taken),
+                colorFilter = ColorFilter.tint(WidgetPalette.forPriority(WidgetPriority.TAKEN)),
             )
         }
     }
 }
 
 /**
- * One dose row: status dot, medication name, time, and the taken/planned progress.
+ * One dose row: status dot, medication name, time and progress, and the status label.
  *
- * The whole row opens the today screen focused on this dose; the optional "+" / "-" buttons write
- * straight to the database from the widget, so a user who is not going to unlock the phone can still
- * record the dose.
+ * The whole row opens the today screen focused on this dose - the single action a home-screen list
+ * should offer.
  */
 @Composable
 private fun WidgetDoseRow(
     item: WidgetDoseItem,
-    showActions: Boolean,
     modifier: GlanceModifier = GlanceModifier,
 ) {
-    val uiPriority = item.priority.toUi()
-    val accent = WidgetPalette.forPriority(uiPriority)
+    val accent = WidgetPalette.forPriority(item.priority)
 
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .background(WidgetPalette.rowSurface(uiPriority))
+            .background(WidgetPalette.rowSurface(item.priority))
             .cornerRadius(12.dp)
             .padding(horizontal = 8.dp, vertical = 4.dp)
             .clickable(actionStartActivity<MainActivity>(openDoseParameters(item))),
@@ -257,21 +235,16 @@ private fun WidgetDoseRow(
             )
         }
 
-        if (showActions && item.actionable) {
-            WidgetStepper(item, R.drawable.ic_widget_remove, -item.step)
-            Spacer(modifier = GlanceModifier.width(4.dp))
-            WidgetStepper(item, R.drawable.ic_widget_add, item.step)
-        } else {
-            Text(
-                text = item.statusLabel,
-                style = TextStyle(
-                    color = accent,
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Medium,
-                ),
-                maxLines = 1,
-            )
-        }
+        Spacer(modifier = GlanceModifier.width(6.dp))
+        Text(
+            text = item.statusLabel,
+            style = TextStyle(
+                color = accent,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Medium,
+            ),
+            maxLines = 1,
+        )
     }
 }
 
@@ -283,13 +256,12 @@ private fun WidgetDoseRow(
  */
 @Composable
 private fun WidgetStripRow(item: WidgetDoseItem) {
-    val uiPriority = item.priority.toUi()
-    val accent = WidgetPalette.forPriority(uiPriority)
+    val accent = WidgetPalette.forPriority(item.priority)
 
     Row(
         modifier = GlanceModifier
             .fillMaxWidth()
-            .background(WidgetPalette.rowSurface(uiPriority))
+            .background(WidgetPalette.rowSurface(item.priority))
             .cornerRadius(10.dp)
             .padding(horizontal = 8.dp, vertical = 3.dp)
             .clickable(actionStartActivity<MainActivity>(openDoseParameters(item))),
@@ -335,36 +307,6 @@ private fun WidgetStripRow(item: WidgetDoseItem) {
 }
 
 /**
- * A single quick-action button.
- *
- * The dose id and the signed delta travel as action parameters - Glance forbids closures in
- * RemoteViews, so the callback reconstructs everything it needs from the parameters alone.
- */
-@Composable
-private fun WidgetStepper(item: WidgetDoseItem, iconRes: Int, delta: Double) {
-    val accent = WidgetPalette.forPriority(item.priority.toUi())
-    val params = actionParametersOf(
-        WidgetActionCallbacks.KEY_DOSE_ID to item.doseId,
-        WidgetActionCallbacks.KEY_DELTA to delta,
-    )
-    Box(
-        modifier = GlanceModifier
-            .size(WidgetDimens.stepperButton)
-            .background(FixedColorProvider(Color(0x14000000)))
-            .cornerRadius(16.dp)
-            .clickable(actionRunCallback<WidgetActionCallbacks.AdjustQuantityCallback>(params)),
-        contentAlignment = Alignment.Center,
-    ) {
-        Image(
-            provider = ImageProvider(iconRes),
-            contentDescription = null,
-            modifier = GlanceModifier.size(14.dp),
-            colorFilter = ColorFilter.tint(accent),
-        )
-    }
-}
-
-/**
  * Shown when there is nothing left to do (or nothing planned at all).
  *
  * [compact] collapses it to one line for the shortest tiles, where a centred two-line block would be
@@ -378,7 +320,11 @@ private fun WidgetCelebration(content: WidgetContent, compact: Boolean) {
     } else {
         context.getString(R.string.widget_all_done)
     }
-    val color = if (content.isEmpty) WidgetPalette.onSurfaceVariant else WidgetPalette.taken
+    val color = if (content.isEmpty) {
+        WidgetPalette.onSurfaceVariant
+    } else {
+        WidgetPalette.forPriority(WidgetPriority.TAKEN)
+    }
 
     if (compact) {
         Text(
@@ -426,13 +372,10 @@ private fun openDoseParameters(item: WidgetDoseItem): ActionParameters =
         ActionParameters.Key<Long>(MainActivity.EXTRA_FOCUS_EPOCH_DAY) to item.epochDay,
     )
 
-/** Domain priority -> widget rendering priority. */
-fun WidgetPriority.toUi(): WidgetPriorityUi = when (this) {
-    WidgetPriority.OVERDUE -> WidgetPriorityUi.OVERDUE
-    WidgetPriority.DUE_SOON -> WidgetPriorityUi.DUE_SOON
-    WidgetPriority.LATER_TODAY -> WidgetPriorityUi.LATER_TODAY
-    WidgetPriority.DONE -> WidgetPriorityUi.TAKEN
-}
-
-/** Convenience so the receiver can build a tinted [ColorProvider] from a raw colour. */
-internal fun colorProviderOf(color: Color): ColorProvider = FixedColorProvider(color)
+/**
+ * The glyph shown beside the title.
+ *
+ * A fixed family rather than the day's first medication: the title is about the app, not about any
+ * one dose, and borrowing a row's icon here would imply a relationship that does not exist.
+ */
+private const val HEADER_GLYPH = "HEART"

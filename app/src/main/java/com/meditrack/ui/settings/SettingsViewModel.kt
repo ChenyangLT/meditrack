@@ -378,14 +378,17 @@ class SettingsViewModel @Inject constructor(
         settingsRepository.setWidgetItemLimit(value)
         doseRepository.notifyWidgetRefresh()
     }
-    fun setWidgetRefreshMinutes(value: Int) = update {
-        settingsRepository.setWidgetRefreshMinutes(value)
+    /**
+     * Changes the widget's re-check cadence.
+     *
+     * Nothing has to be rescheduled: the guard service's ticker re-reads the preference on every
+     * iteration, so the new interval takes effect on the next tick without restarting the service.
+     */
+    fun setWidgetRefreshSeconds(value: Int) = update {
+        settingsRepository.setWidgetRefreshSeconds(value)
         doseRepository.notifyWidgetRefresh()
     }
-    fun setWidgetQuickActions(value: Boolean) = update {
-        settingsRepository.setWidgetQuickActions(value)
-        doseRepository.notifyWidgetRefresh()
-    }
+
     fun setWidgetShowCompleted(value: Boolean) = update {
         settingsRepository.setWidgetShowCompleted(value)
         doseRepository.notifyWidgetRefresh()

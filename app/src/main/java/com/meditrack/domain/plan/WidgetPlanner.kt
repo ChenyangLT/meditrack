@@ -6,21 +6,35 @@ import com.meditrack.core.util.QuantityFormatter
 /**
  * How strongly a dose competes for the limited space on the home screen.
  *
- * The ordering is the core product requirement: a dose the user has already missed is more urgent
- * than one that is merely coming up, so it must never be pushed below the fold by later doses.
+ * ## The ordering is a product decision, not an urgency ranking
+ *
+ * The order is **即将服用 → 未服药 → 今日稍后 → 已服用 → 已跳过**, carried by three colours:
+ * yellow, red, green.
+ *
+ * Note that this deliberately puts *upcoming* doses above *overdue* ones. A widget glanced at on the
+ * way out of the door is most useful when it answers "what do I need to take soon"; an overdue dose
+ * has already lost its moment, so it stays prominent in red one line down rather than occupying the
+ * top slot.
  */
 enum class WidgetPriority(val rank: Int, val label: String) {
-    /** Scheduled time already passed and nothing recorded - red. */
-    OVERDUE(0, "已过时间"),
+    /** Within [WidgetPlanner.DUE_SOON_WINDOW_MINUTES] of its time - yellow, first on the tile. */
+    DUE_SOON(0, "即将服用"),
 
-    /** Within the next 30 minutes - orange. */
-    DUE_SOON(1, "即将服用"),
+    /** Its time has passed with nothing (or only part) recorded - red. */
+    MISSED(1, "未服药"),
 
-    /** Later today, still open - neutral/blue. */
+    /** Later today and still open - neutral, after the two that need attention. */
     LATER_TODAY(2, "今日稍后"),
 
-    /** Taken, skipped or missed - green/grey, shown last. */
-    DONE(3, "已完成"),
+    /** Recorded as taken - green. */
+    TAKEN(3, "已服用"),
+
+    /** Deliberately skipped - muted, and never worth space above anything else. */
+    SKIPPED(4, "已跳过"),
+    ;
+
+    /** True for the doses the "显示已服用" switch hides: actioned, nothing left to do. */
+    val isCompleted: Boolean get() = this == TAKEN || this == SKIPPED
 }
 
 /**
@@ -49,10 +63,6 @@ data class WidgetDoseItem(
     /** Colour tag name of the medication, resolved to an ARGB by the widget theme. */
     val colorTagName: String,
     val iconName: String,
-    /** True when the quick +/- actions should be offered for this row. */
-    val actionable: Boolean,
-    /** Step applied by the widget quick action buttons. */
-    val step: Double,
     val allowsFraction: Boolean,
     val epochDay: Long,
 )
@@ -68,6 +78,38 @@ data class WidgetContent(
 
     /** Open work only - what the "还有 N 项" badge shows. */
     val outstanding: Int get() = summary.remainingDoses
+
+    /**
+     * The payload minus the doses the user asked not to see.
+     *
+     * Lives here rather than in each caller because two of them build this payload independently -
+     * the widget's own content builder and the repository - and they must agree exactly about what
+     * "hide completed" means, or the tile would flicker between two different lists.
+     */
+    fun visible(showCompleted: Boolean): WidgetContent =
+        if (showCompleted) this else copy(items = items.filterNot { it.priority.isCompleted })
+
+    /**
+     * A cheap value that changes exactly when what the widget *shows* changes.
+     *
+     * The refresh interval can be as short as ten seconds, and redrawing a RemoteViews into the
+     * launcher's process that often would be wasteful for no visible benefit: nothing on this tile
+     * ticks. Comparing this fingerprint first means a short interval costs one small database read
+     * and buys promptness, while the expensive redraw still happens only when a dose actually moves
+     * between states.
+     */
+    fun fingerprint(): String = buildString {
+        append(epochDay).append('|')
+        append(summary.completedDoses).append('/').append(summary.totalDoses).append('|')
+        for (item in items) {
+            append(item.doseId).append(':')
+                .append(item.priority.rank).append(':')
+                .append(item.statusLabel).append(':')
+                .append(item.timeLabel).append(':')
+                .append(item.quantityLabel).append(':')
+                .append(item.name).append(';')
+        }
+    }
 }
 
 /**
@@ -105,16 +147,24 @@ object WidgetPlanner {
         )
     }
 
-    /** Classifies one dose; visible for unit tests, the widget path goes through [plan]. */
+    /**
+     * Classifies one dose; visible for unit tests, the widget path goes through [plan].
+     *
+     * @param statusLabel the stored [com.meditrack.data.local.entity.DoseStatus] name
+     */
     fun priorityOf(
         statusLabel: String,
         plannedTimeMillis: Long,
         nowMillis: Long,
     ): WidgetPriority = when (statusLabel) {
-        "TAKEN", "SKIPPED", "MISSED" -> WidgetPriority.DONE
+        "TAKEN" -> WidgetPriority.TAKEN
+        "SKIPPED" -> WidgetPriority.SKIPPED
+        // Already recorded as a miss: nothing left to do, but it must stay visible in red rather
+        // than being swept into the "completed" bucket where the hide-completed switch would eat it.
+        "MISSED" -> WidgetPriority.MISSED
         else -> when {
-            // Already past its time with nothing recorded: highest priority.
-            plannedTimeMillis <= nowMillis -> WidgetPriority.OVERDUE
+            // Its time has passed with nothing (or only part) recorded - red.
+            plannedTimeMillis <= nowMillis -> WidgetPriority.MISSED
             DateTimeUtils.minutesUntil(plannedTimeMillis, nowMillis) <= DUE_SOON_WINDOW_MINUTES ->
                 WidgetPriority.DUE_SOON
             else -> WidgetPriority.LATER_TODAY
@@ -179,7 +229,6 @@ object WidgetPlanner {
     ) {
         fun toItem(use24Hour: Boolean, nowMillis: Long): WidgetDoseItem {
             val priority = priorityOf(status, plannedTimeMillis, nowMillis)
-            val resolved = isResolved(status)
             return WidgetDoseItem(
                 doseId = doseId,
                 medicationId = medicationId,
@@ -188,16 +237,23 @@ object WidgetPlanner {
                 quantityLabel = QuantityFormatter.formatProgress(
                     takenQuantity, plannedQuantity, plannedUnit
                 ),
-                statusLabel = when (priority) {
-                    // An overdue, untouched dose is the "到了时间没吃" case the widget must
-                    // shout about, so it uses the same wording as the app.
-                    WidgetPriority.OVERDUE -> if (status == "PARTIAL") "部分服用" else "未服药"
-                    WidgetPriority.DUE_SOON -> "即将服用"
-                    WidgetPriority.LATER_TODAY -> "稍后"
-                    WidgetPriority.DONE -> when (status) {
-                        "TAKEN" -> "已服用"
-                        "SKIPPED" -> "已跳过"
-                        else -> "未服药"
+                statusLabel = when (status) {
+                    // The stored status is the most specific answer, so it wins where it exists.
+                    "TAKEN" -> "已服用"
+                    "SKIPPED" -> "已跳过"
+                    "MISSED" -> "未服药"
+                    // A partly-taken dose keeps its own wording: "未服药" would be a lie, and it is
+                    // the one label that tells the user something is still outstanding.
+                    "PARTIAL" -> "部分服用"
+                    else -> when (priority) {
+                        // Past its time with nothing recorded - the "到了时间没吃" case the widget
+                        // must shout about, using the same wording as the app.
+                        WidgetPriority.MISSED -> "未服药"
+                        WidgetPriority.DUE_SOON -> "即将服用"
+                        WidgetPriority.LATER_TODAY -> "稍后"
+                        // Unreachable: the branches above cover every completed status.
+                        WidgetPriority.TAKEN -> "已服用"
+                        WidgetPriority.SKIPPED -> "已跳过"
                     }
                 },
                 priority = priority,
@@ -205,8 +261,6 @@ object WidgetPlanner {
                 plannedMinuteOfDay = plannedMinuteOfDay,
                 colorTagName = colorTag,
                 iconName = icon,
-                actionable = !resolved,
-                step = QuantityFormatter.stepFor(allowsFraction),
                 allowsFraction = allowsFraction,
                 epochDay = epochDay,
             )

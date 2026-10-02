@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  Widget metadata: the 4x1 footprint.
+  Widget metadata: one entry, resizable.
 
   ## Sizing
 
@@ -8,30 +8,33 @@
   tile may take, not its default: 4 columns = 250dp, 1 row = 40dp. `targetCellWidth` /
   `targetCellHeight` give the size the launcher places it at.
 
-  Every footprint in this app declares the same floor - 4 columns by 1 row - and the same
-  `minResize*` values, so **no entry can ever be resized down into a shape its layout cannot draw**.
-  That is the structural fix for the old widget's problem: it defaulted to a 2x2 square, which is
-  narrower than a single row of this list needs, and it had no floor preventing that.
+  Four columns by one row is the declared floor because that is the smallest shape this list can draw
+  without cutting a medication name or its status off - which is exactly what the old fixed 2x2
+  default did. The user drags the tile from there to whatever they want, and because the layout is
+  derived from the real size (see `WidgetSizing`) every shape in between looks deliberate.
 
-  Horizontal resizing is still free (a wider tile simply has more room for long medication names);
-  the floor only stops it getting *narrower* than four columns.
+  `resizeMode="horizontal|vertical"` keeps both handles available: wider simply gives long medication
+  names more room.
 
-  `updatePeriodMillis` is 30 minutes - the fastest the platform allows - and is only a floor. The
-  real refresh cadence comes from data writes, alarm delivery and the WorkManager refresher.
+  ## Refresh
+
+  `updatePeriodMillis` is 30 minutes - the fastest the platform allows - and is only a floor. The real
+  cadence is the user's choice (10 seconds to 10 minutes), driven by the background guard service,
+  with a 15-minute WorkManager job as the fallback when that service is switched off.
 
   `reconfigurable` is deliberately NOT declared: it advertises a configuration screen in the
   launcher, and this widget has none. `configuration_optional` is what lets it be placed without one.
 -->
 <appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
-    android:description="@string/widget_description_compact"
+    android:description="@string/widget_description"
     android:initialLayout="@layout/glance_default_loading_layout"
     android:minHeight="40dp"
     android:minWidth="250dp"
     android:minResizeHeight="40dp"
     android:minResizeWidth="250dp"
-    android:previewImage="@drawable/ic_widget_preview_4x1"
+    android:previewImage="@drawable/ic_widget_preview"
     android:resizeMode="horizontal|vertical"
-    android:targetCellHeight="1"
+    android:targetCellHeight="2"
     android:targetCellWidth="4"
     android:updatePeriodMillis="1800000"
     android:widgetCategory="home_screen"
