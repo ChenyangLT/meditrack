@@ -118,6 +118,12 @@ object DateTimeUtils {
     /** 分钟 as one unbreakable word, so the unit can never be split down the middle. */
     private const val MINUTES_WORD = "分${WORD_JOINER}钟"
 
+    /** 小时, welded the same way. */
+    private const val HOURS_WORD = "小${WORD_JOINER}时"
+
+    /** 天, welded the same way. */
+    private const val DAYS_WORD = "${WORD_JOINER}天"
+
     /**
      * "还有 12 分钟" / "已过 35 分钟" helper for the today list.
      *
@@ -128,9 +134,27 @@ object DateTimeUtils {
     fun relativeLabel(targetMillis: Long, nowMillis: Long = System.currentTimeMillis()): String {
         val diff = minutesUntil(targetMillis, nowMillis)
         return when {
-            diff > 0 -> "还有 $diff${NBSP}$MINUTES_WORD"
             diff == 0L -> "就是现在"
-            else -> "已过 ${-diff}${NBSP}$MINUTES_WORD"
+            diff > 0 -> "还有 " + durationWords(diff)
+            else -> "已过 " + durationWords(-diff)
         }
+    }
+
+    /**
+     * A span of minutes, in the largest unit that stays readable.
+     *
+     * Minutes alone stop working quickly on a medication card: a dose planned for this morning, looked
+     * at in the evening, reads "已过 1005 分钟" - a number the reader has to divide in their head to
+     * learn anything. People say "已过 16 小时"; the card should too.
+     */
+    private fun durationWords(minutes: Long): String = when {
+        minutes < 60L -> "$minutes${NBSP}$MINUTES_WORD"
+        minutes < 24L * 60L -> {
+            val hours = minutes / 60L
+            val rest = minutes % 60L
+            val head = "$hours${NBSP}$HOURS_WORD"
+            if (rest == 0L) head else "$head $rest${NBSP}$MINUTES_WORD"
+        }
+        else -> "${minutes / (24L * 60L)}${NBSP}$DAYS_WORD"
     }
 }

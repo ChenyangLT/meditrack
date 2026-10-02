@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 108 108" width="108" height="108" role="img" aria-label="药准时">
+  <defs>
+    <linearGradient id="brand" x1="0" y1="0" x2="108" y2="108" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#3DBFA0"/>
+      <stop offset="1" stop-color="#2E9BB5"/>
+    </linearGradient>
+    <clipPath id="squircle">
+      <path d="M26 0h56c14.4 0 26 11.6 26 26v56c0 14.4-11.6 26-26 26H26C11.6 108 0 96.4 0 82V26C0 11.6 11.6 0 26 0z"/>
+    </clipPath>
+  </defs>
+  <g clip-path="url(#squircle)">
+    <rect width="108" height="108" fill="url(#brand)"/>
+    <!-- clock -->
+    <circle cx="68" cy="66" r="15" fill="none" stroke="#fff" stroke-width="5"/>
+    <path d="M68 57.5V66l6.5 3.5" fill="none" stroke="#fff" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+    <!-- capsule -->
+    <path d="M35.5 27.5a13 13 0 0 1 18.4 0 13 13 0 0 1 0 18.4L39.4 60.4a13 13 0 0 1-18.4-18.4z" fill="#fff"/>
+    <path d="M27.6 35.4 44.2 52" fill="none" stroke="#3DBFA0" stroke-width="4" stroke-linecap="round"/>
+  </g>
+</svg>

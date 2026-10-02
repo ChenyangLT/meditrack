@@ -2,7 +2,6 @@ package com.meditrack.data.backup
 
 import androidx.room.withTransaction
 import com.google.gson.Gson
-import com.google.gson.GsonBuilder
 import com.google.gson.JsonSyntaxException
 import com.google.gson.annotations.SerializedName
 import com.meditrack.core.util.DateTimeUtils
@@ -189,9 +188,6 @@ data class ImportResult(
     val doseLogs: Int,
 )
 
-/** Thrown when the file is not a MediTrack backup at all. */
-class BackupParseException(message: String, cause: Throwable? = null) : Exception(message, cause)
-
 /**
  * JSON backup, CSV export and restore.
  *
@@ -205,10 +201,11 @@ class BackupRepository @Inject constructor(
     private val settingsRepository: SettingsRepository,
 ) {
 
-    private val gson: Gson = GsonBuilder()
-        .setPrettyPrinting()
-        .serializeNulls()
-        .create()
+    /**
+     * The one Gson configuration in the app, shared with [BackupFormat] so that what we write and
+     * what we accept can never drift apart.
+     */
+    private val gson: Gson get() = BackupFormat.gson
 
     // ----------------------------------------------------------------- export
 
@@ -296,25 +293,7 @@ class BackupRepository @Inject constructor(
     }
 
     /** Visible for testing: parses and validates the JSON body. */
-    fun parseBackupText(text: String): BackupFile {
-        if (text.isBlank()) throw BackupParseException("文件是空的")
-        val parsed = try {
-            gson.fromJson(text, BackupFile::class.java)
-        } catch (e: JsonSyntaxException) {
-            throw BackupParseException("不是有效的 JSON 备份文件", e)
-        } catch (e: IllegalStateException) {
-            throw BackupParseException("文件结构不符合备份格式", e)
-        }
-
-        if (parsed == null) throw BackupParseException("不是有效的 JSON 备份文件")
-        if (parsed.schemaVersion > BackupFile.CURRENT_SCHEMA_VERSION) {
-            throw BackupParseException("备份来自更新的版本（v${parsed.schemaVersion}），请先升级应用")
-        }
-        if (parsed.medications.isEmpty() && parsed.doseLogs.isEmpty()) {
-            throw BackupParseException("备份里没有药品或服药记录")
-        }
-        return parsed
-    }
+    fun parseBackupText(text: String): BackupFile = BackupFormat.parse(text)
 
     /**
      * Replaces the database contents with [backup] inside a single transaction.
@@ -324,12 +303,24 @@ class BackupRepository @Inject constructor(
      * useful than a hard failure, and the FK constraints would otherwise reject everything.
      */
     suspend fun importBackup(backup: BackupFile): ImportResult = withContext(Dispatchers.IO) {
-        database.withTransaction {
+        // ---------------------------------------------------------------- validate FIRST
+        //
+        // Nothing destructive may happen before the import is known to be meaningful. The previous
+        // order cleared every table inside the transaction, let it commit, and only then threw
+        // "备份里没有可导入的药品" for a backup that turned out to contain no medications - so the user
+        // got an error message *and* an empty database. For a medication record that is the worst
+        // possible outcome, and it is not recoverable by retrying.
+        val medicationIds = backup.medications.map { it.id }.toSet()
+        if (medicationIds.isEmpty()) {
+            throw BackupParseException("备份里没有药品，已取消导入（原数据未改动）")
+        }
+
+        val result = database.withTransaction {
             // clearAllTables() respects foreign keys and is far more reliable than deleting table
-            // by table in a hand-picked order.
+            // by table in a hand-picked order. It runs inside the transaction, so a failure during
+            // any insert below rolls the whole thing back instead of leaving an empty database.
             database.clearAllTables()
 
-            val medicationIds = backup.medications.map { it.id }.toSet()
             for (dto in backup.medications) {
                 database.medicationDao().insert(dto.toEntity())
             }
@@ -361,12 +352,17 @@ class BackupRepository @Inject constructor(
                 schedules = scheduleIds.size,
                 doseLogs = logIds.size,
             )
-        }.also { result ->
-            // Settings live in DataStore, outside the SQL transaction; applying them afterwards is
-            // the closest we can get to atomic across the two stores.
-            backup.settings?.let { settingsRepository.applyImportedSettings(it) }
-            if (result.medications == 0) throw BackupParseException("备份里没有可导入的药品")
         }
+
+        // Settings live in DataStore, outside the SQL transaction; applying them afterwards is the
+        // closest we can get to atomic across the two stores.
+        //
+        // Deliberately swallowed: the rows are already committed and correct, so a preferences write
+        // that fails must not be reported to the user as "导入失败" - and must certainly not suggest
+        // that the import did not happen.
+        runCatching { backup.settings?.let { settingsRepository.applyImportedSettings(it) } }
+
+        result
     }
 
     /** Deletes every row; used by "清空数据" in settings. */

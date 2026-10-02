@@ -112,9 +112,9 @@ class DoseOverdueTest {
         // The status chip already says 未服药 / 已服用 in a colour and with an icon. Repeating it in
         // the hint cost the line the width that kept the unit word on one line at the largest text
         // scale, where the only break opportunity left was inside "分钟".
-        val missed = view(now - 120 * minute, DoseStatus.MISSED)
+        val missed = view(now - 45 * minute, DoseStatus.MISSED)
 
-        assertThat(missed.timingHint).contains("120")
+        assertThat(missed.timingHint).isEqualTo("已过 45\u00A0分\u2060钟")
         assertThat(missed.timingHint).doesNotContain("未服药")
         assertThat(missed.status).isEqualTo(DoseStatus.MISSED)
     }
@@ -123,11 +123,24 @@ class DoseOverdueTest {
     fun `a count can never be separated from its unit by a line break`() {
         // U+00A0 keeps "120" and "分钟" together; U+2060 (word joiner) keeps 分 and 钟 together,
         // because Chinese text would otherwise break between any two ideographs.
-        val label = DateTimeUtils.relativeLabel(now - 151 * minute, now)
+        val label = DateTimeUtils.relativeLabel(now - 45 * minute, now)
 
-        assertThat(label).contains("151 分⁠钟")
-        assertThat(label).doesNotContain("151 分钟")   // a plain space here would be breakable
-        assertThat(label).doesNotContain("分钟")        // ...and the joiner is actually present
+        assertThat(label).contains("45 分⁠钟")
+        assertThat(label).doesNotContain("45 分钟")   // a plain space here would be breakable
+        assertThat(label).doesNotContain("分钟")       // ...and the joiner is actually present
+    }
+
+    @Test
+    fun `a long gap is told in hours, not in hundreds of minutes`() {
+        // "已过 1005 分钟" is a number the reader has to divide before it means anything.
+        // Written with escapes rather than literal characters: an invisible WORD JOINER in a source
+        // file is a trap for the next person to edit this.
+        assertThat(DateTimeUtils.relativeLabel(now - 151 * minute, now))
+            .isEqualTo("已过 2\u00A0小\u2060时 31\u00A0分\u2060钟")
+        assertThat(DateTimeUtils.relativeLabel(now - 16 * 60 * minute, now))
+            .isEqualTo("已过 16\u00A0小\u2060时")
+        assertThat(DateTimeUtils.relativeLabel(now - 3 * 24 * 60 * minute, now))
+            .isEqualTo("已过 3\u00A0\u2060天")
     }
 
     @Test

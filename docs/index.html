@@ -1,0 +1,445 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>药准时 · 离线优先的用药提醒与记录</title>
+<meta name="description" content="药准时是一款离线优先的用药提醒与记录应用：精确闹钟、后台守护、解锁补提醒、桌面小组件、历史统计。不申请网络权限，数据只存在你的手机里。">
+<meta name="theme-color" content="#0F1113">
+<meta property="og:title" content="药准时 · 离线优先的用药提醒与记录">
+<meta property="og:description" content="到点提醒；没看见，就再提醒一次。">
+<meta property="og:image" content="assets/icon.svg">
+<link rel="icon" href="assets/icon.svg" type="image/svg+xml">
+<style>
+  /* ---------------------------------------------------------------- tokens */
+  :root{
+    --bg:#0F1113;
+    --surface:#17191C;
+    --surface-2:#1D2024;
+    --line:#2A2E33;
+    --text:#ECEDEE;
+    --muted:#9BA1A6;
+    --mint:#3DBFA0;
+    --teal:#2E9BB5;
+    --warn:#F0B76A;
+    --danger:#FFB4AB;
+    --radius:16px;
+    --radius-lg:24px;
+    /* Strong custom easings. The CSS defaults are too weak to feel intentional. */
+    --ease-out:cubic-bezier(.23,1,.32,1);
+    --ease-in-out:cubic-bezier(.77,0,.175,1);
+    --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,"Liberation Mono",monospace;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei","Noto Sans SC",sans-serif;
+  }
+  *,*::before,*::after{box-sizing:border-box}
+  html{-webkit-text-size-adjust:100%}
+  body{
+    margin:0;background:var(--bg);color:var(--text);
+    font-family:var(--sans);font-size:16px;line-height:1.75;
+    letter-spacing:.01em;
+    -webkit-font-smoothing:antialiased;
+  }
+  img{max-width:100%;display:block}
+  a{color:inherit}
+  .wrap{width:min(1120px,100% - 40px);margin-inline:auto}
+  h1,h2,h3{line-height:1.25;letter-spacing:-.02em;margin:0}
+  h1{font-size:clamp(2.6rem,7vw,4.2rem);font-weight:800}
+  h2{font-size:clamp(1.6rem,3.4vw,2.3rem);font-weight:700}
+  h3{font-size:1.06rem;font-weight:650;letter-spacing:-.01em}
+  p{margin:0}
+  .muted{color:var(--muted)}
+  .mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
+
+  /* ------------------------------------------------------------- top bar */
+  header{
+    position:sticky;top:0;z-index:20;
+    backdrop-filter:saturate(140%) blur(12px);
+    background:color-mix(in srgb,var(--bg) 82%,transparent);
+    border-bottom:1px solid transparent;
+    transition:border-color 200ms ease,background 200ms ease;
+  }
+  header.scrolled{border-bottom-color:var(--line)}
+  .bar{display:flex;align-items:center;gap:14px;height:64px}
+  .brand{display:flex;align-items:center;gap:10px;font-weight:700;letter-spacing:-.01em;text-decoration:none}
+  .brand img{width:30px;height:30px;border-radius:9px}
+  nav{margin-left:auto;display:flex;gap:22px;font-size:.93rem}
+  nav a{color:var(--muted);text-decoration:none;transition:color 160ms ease}
+  nav a:hover{color:var(--text)}
+  @media (max-width:760px){nav{display:none}}
+
+  /* --------------------------------------------------------------- hero */
+  .hero{padding:72px 0 40px;display:grid;gap:56px;grid-template-columns:1.05fr .95fr;align-items:center}
+  @media (max-width:900px){.hero{grid-template-columns:1fr;padding-top:44px;gap:40px}}
+  .badge{
+    display:inline-flex;align-items:center;gap:8px;
+    padding:6px 12px;border-radius:999px;border:1px solid var(--line);
+    background:var(--surface);color:var(--muted);font-size:.82rem;
+  }
+  .badge i{width:6px;height:6px;border-radius:50%;background:var(--mint)}
+  .hero h1{margin:20px 0 16px;
+    background:linear-gradient(120deg,#fff 20%,#BFEDE1 60%,#8FD6E4);
+    -webkit-background-clip:text;background-clip:text;color:transparent}
+  .lede{font-size:clamp(1.05rem,2.2vw,1.28rem);color:#CFD3D6;max-width:32ch}
+  .cta{display:flex;flex-wrap:wrap;gap:12px;margin-top:30px}
+  .btn{
+    display:inline-flex;align-items:center;gap:9px;
+    padding:13px 22px;border-radius:999px;font-weight:650;font-size:.97rem;
+    text-decoration:none;border:1px solid transparent;cursor:pointer;
+    transition:transform 130ms var(--ease-out),background 180ms ease,border-color 180ms ease,box-shadow 180ms ease;
+  }
+  .btn-primary{background:linear-gradient(120deg,var(--mint),var(--teal));color:#06201B;box-shadow:0 8px 24px -12px rgba(61,191,160,.75)}
+  .btn-ghost{background:var(--surface);border-color:var(--line);color:var(--text)}
+  /* Feedback lives on the press, and it is instant. */
+  .btn:active{transform:scale(.97)}
+  .btn:hover{transform:translateY(-1px)}
+  .btn:focus-visible,nav a:focus-visible,a:focus-visible{outline:2px solid var(--mint);outline-offset:3px;border-radius:8px}
+  .facts{display:flex;flex-wrap:wrap;gap:8px 18px;margin-top:26px;font-size:.86rem;color:var(--muted)}
+  .facts span{display:inline-flex;align-items:center;gap:7px}
+  .facts span::before{content:"";width:5px;height:5px;border-radius:50%;background:var(--line)}
+
+  /* ----------------------------------------------------------- phone shot */
+  .phone{
+    position:relative;width:min(320px,78vw);margin-inline:auto;
+    border-radius:36px;padding:10px;background:linear-gradient(180deg,#25292E,#14171A);
+    border:1px solid #303539;
+    box-shadow:0 40px 80px -40px rgba(0,0,0,.9),0 2px 0 rgba(255,255,255,.04) inset;
+  }
+  .phone img{border-radius:27px;width:100%}
+  .phone::after{
+    content:"";position:absolute;left:50%;top:16px;transform:translateX(-50%);
+    width:74px;height:6px;border-radius:99px;background:#0B0D0F;opacity:.55;
+  }
+  .hero .phone{margin-block:26px;width:min(300px,70vw)}
+  /* Two floating tags pinned to the device's edges rather than over its content: an annotation that
+     hides the thing it annotates is worse than no annotation. */
+  .float{
+    position:absolute;padding:9px 13px;border-radius:12px;font-size:.8rem;white-space:nowrap;
+    background:color-mix(in srgb,var(--surface-2) 94%,transparent);
+    border:1px solid var(--line);box-shadow:0 16px 32px -20px rgba(0,0,0,.85);
+    animation:float 6.5s var(--ease-in-out) infinite;
+  }
+  .float.a{left:2%;top:0}
+  .float.b{right:2%;bottom:0;animation-delay:-2.2s}
+  @keyframes float{0%,100%{transform:translateY(0)}50%{transform:translateY(-9px)}}
+  @media (max-width:520px){.float{display:none}}
+
+  /* ------------------------------------------------------------ sections */
+  section{padding:76px 0}
+  section + section{border-top:1px solid var(--line)}
+  .kicker{color:var(--mint);font-weight:650;font-size:.86rem;letter-spacing:.08em}
+  .head{max-width:60ch;margin-bottom:40px}
+  .head h2{margin:12px 0 14px}
+  .head p{color:var(--muted)}
+
+  .grid{display:grid;gap:16px}
+  .g3{grid-template-columns:repeat(3,1fr)}
+  .g2{grid-template-columns:repeat(2,1fr)}
+  @media (max-width:980px){.g3{grid-template-columns:repeat(2,1fr)}}
+  @media (max-width:660px){.g3,.g2{grid-template-columns:1fr}}
+  .card{
+    background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);
+    padding:22px;
+    transition:transform 220ms var(--ease-out),border-color 220ms ease,background 220ms ease;
+  }
+  .card:hover{transform:translateY(-2px);border-color:#3A4046;background:var(--surface-2)}
+  .card h3{margin-bottom:8px}
+  .card p{color:var(--muted);font-size:.94rem}
+  .card .ico{
+    width:36px;height:36px;border-radius:11px;display:grid;place-items:center;margin-bottom:14px;
+    background:linear-gradient(140deg,rgba(61,191,160,.22),rgba(46,155,181,.14));
+    border:1px solid rgba(61,191,160,.35);color:var(--mint);font-size:1.05rem;
+  }
+  .card.big{grid-column:span 2}
+  @media (max-width:980px){.card.big{grid-column:span 2}}
+  @media (max-width:660px){.card.big{grid-column:span 1}}
+
+  .shotstrip{display:grid;grid-template-columns:repeat(4,1fr);gap:22px;align-items:start}
+  @media (max-width:980px){.shotstrip{grid-template-columns:repeat(2,1fr)}}
+  @media (max-width:560px){.shotstrip{grid-template-columns:1fr}}
+  .shotstrip figure{margin:0}
+  .shotstrip figcaption{margin-top:12px;font-size:.86rem;color:var(--muted);text-align:center}
+
+  .steps{counter-reset:s;display:grid;gap:14px}
+  .step{display:flex;gap:16px;align-items:flex-start;padding:18px 20px;border:1px solid var(--line);border-radius:var(--radius);background:var(--surface)}
+  .step::before{
+    counter-increment:s;content:counter(s);
+    font-family:var(--mono);font-size:.85rem;color:#06201B;font-weight:700;
+    width:26px;height:26px;flex:0 0 26px;border-radius:50%;display:grid;place-items:center;
+    background:linear-gradient(120deg,var(--mint),var(--teal));
+  }
+  .step strong{display:block;margin-bottom:2px}
+  .step p{color:var(--muted);font-size:.93rem}
+
+  blockquote{
+    margin:0;padding:22px 24px;border-left:3px solid var(--mint);
+    background:var(--surface);border-radius:0 var(--radius) var(--radius) 0;color:#D6D9DB;
+  }
+  .note{
+    border:1px solid #4A3A20;background:rgba(240,183,106,.08);color:#F3D9AE;
+    border-radius:var(--radius);padding:18px 20px;font-size:.93rem;
+  }
+  .note strong{color:#FFD79A}
+  table{width:100%;border-collapse:collapse;font-size:.94rem}
+  th,td{text-align:left;padding:12px 14px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{color:var(--muted);font-weight:600;font-size:.85rem;letter-spacing:.03em}
+  td:first-child{white-space:nowrap;color:#D8DBDE}
+  .changelog li{margin-bottom:7px;color:var(--muted)}
+  .changelog li b{color:var(--text);font-weight:650}
+
+  footer{border-top:1px solid var(--line);padding:44px 0 60px;color:var(--muted);font-size:.9rem}
+  .fgrid{display:flex;flex-wrap:wrap;gap:20px;align-items:center}
+  .fgrid nav{margin-left:auto;gap:18px}
+  @media (max-width:660px){.fgrid nav{margin-left:0}}
+
+  /* Reveal on scroll: only where motion is welcome, and only once per element. */
+  @media (prefers-reduced-motion:no-preference){
+    .reveal{opacity:0;transform:translateY(14px);transition:opacity 560ms var(--ease-out),transform 560ms var(--ease-out)}
+    .reveal.in{opacity:1;transform:none}
+  }
+  /* Nothing moves for anyone who asked for stillness. */
+  @media (prefers-reduced-motion:reduce){
+    *,*::before,*::after{animation:none!important;transition:none!important}
+    .reveal{opacity:1;transform:none}
+  }
+</style>
+</head>
+<body>
+
+<header id="top">
+  <div class="wrap bar">
+    <a class="brand" href="#top"><img src="assets/icon.svg" alt="">药准时 <span class="muted" style="font-weight:500">MediTrack</span></a>
+    <nav>
+      <a href="#remind">提醒</a>
+      <a href="#shots">界面</a>
+      <a href="#features">功能</a>
+      <a href="#privacy">隐私</a>
+      <a href="#changelog">更新日志</a>
+      <a href="https://github.com/ChenyangLT/meditrack">GitHub</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+  <div class="wrap hero">
+    <div>
+      <span class="badge"><i></i>离线优先 · 不申请网络权限</span>
+      <h1>到点提醒；<br>没看见，就再提醒一次。</h1>
+      <p class="lede">药准时是一款离线优先的用药提醒与记录应用。提醒落在锁屏、手机装在口袋里的时候，只要你解锁手机，它会把「已经过了时间、还没记录」的药再告诉你一次。</p>
+      <div class="cta">
+        <a class="btn btn-primary" href="https://github.com/ChenyangLT/meditrack/releases">下载 APK</a>
+        <a class="btn btn-ghost" href="https://github.com/ChenyangLT/meditrack">查看源码</a>
+      </div>
+      <div class="facts">
+        <span>Android 8.0 及以上</span>
+        <span>无账号 · 无广告 · 无统计</span>
+        <span>数据只存在本机</span>
+      </div>
+    </div>
+    <div style="position:relative">
+      <div class="phone"><img src="assets/screenshots/today.png" alt="今日用药页面：4/6 已完成，一张卡片显示未服药" width="720" height="1600"></div>
+      <div class="float a mono">还有 20 分钟 · 维生素 D3</div>
+      <div class="float b">解锁时补提醒：你还有 1 项没吃</div>
+    </div>
+  </div>
+
+  <section id="remind">
+    <div class="wrap">
+      <div class="head reveal">
+        <div class="kicker">提醒</div>
+        <h2>为「没人看见的那一次」而设计</h2>
+        <p>大多数提醒失败不是因为没响，而是因为响的时候没人看见：手机在锁屏、在口袋里、在另一个房间。等到你拿起手机，那条通知已经过期了。药准时针对这件事有三层处理。</p>
+      </div>
+
+      <div class="steps reveal">
+        <div class="step">
+          <div><strong>到点：精确闹钟 + 闹钟级提醒</strong>
+          <p>每个服药时间由系统精确闹钟唤醒，可选「闹钟级提醒」——Android 唯一不受省电模式影响的闹钟类型，代价是状态栏出现一个闹钟图标，所以交给用户决定。</p></div>
+        </div>
+        <div class="step">
+          <div><strong>没看见：解锁补提醒</strong>
+          <p>只要你解锁手机（或重新打开药准时），应用立刻检查所有「已过时间、还没记录」的药——包括已经被判为未服药的——合并成一条提醒告诉你。次数从第一次解锁提醒开始算，可设 1–10 次，两次之间可设最小间隔；点了「稍后」的药在到点前不会打扰你。</p></div>
+        </div>
+        <div class="step">
+          <div><strong>连进程都没了：后台守护与自检心跳</strong>
+          <p>后台守护服务让系统不把应用当成可回收的后台进程；每 15 分钟一次的心跳会从数据库重新推导并重排全部提醒，因此任何一个闹钟被系统丢掉，最多只延误一个周期，而不是永远消失。</p></div>
+        </div>
+      </div>
+
+      <div class="grid g2 reveal" style="margin-top:16px">
+        <div class="card">
+          <div class="ico">◔</div>
+          <h3>它知道自己做过什么</h3>
+          <p>每一次提醒的决策都会记录下来：是哪个触发原因、投递还是跳过、跳过是因为什么、系统实际延迟了多少毫秒。设置页的「最近的提醒决策」可以直接回答「为什么 8 点没有提醒我」。</p>
+        </div>
+        <div class="card">
+          <div class="ico">◎</div>
+          <h3>它也知道自己是否被限制</h3>
+          <p>自检面板会核对通知权限、精确闹钟、电池优化白名单、后台守护是否在运行，并把「已排定的闹钟没有被系统触发」这种证据直接摆出来——这是分辨「应用没排」和「系统没给」的唯一办法。</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="shots">
+    <div class="wrap">
+      <div class="head reveal">
+        <div class="kicker">界面</div>
+        <h2>四个页面，够用就好</h2>
+        <p>今日、药品、历史与统计、设置。所有数字与时间使用等宽字体，避免读数跳动；每个状态都有独立的图标与文字，不只靠颜色区分。</p>
+      </div>
+      <div class="shotstrip reveal">
+        <figure>
+          <div class="phone"><img src="assets/screenshots/today.png" alt="今日" width="720" height="1600"></div>
+          <figcaption>今日：进度、每次服药与状态</figcaption>
+        </figure>
+        <figure>
+          <div class="phone"><img src="assets/screenshots/medications.png" alt="药品" width="720" height="1600"></div>
+          <figcaption>药品：多个时间、重复规则、库存</figcaption>
+        </figure>
+        <figure>
+          <div class="phone"><img src="assets/screenshots/history.png" alt="历史与统计" width="720" height="1600"></div>
+          <figcaption>历史：月历、依从率、连续天数</figcaption>
+        </figure>
+        <figure>
+          <div class="phone"><img src="assets/screenshots/reliability.png" alt="提醒可靠性" width="720" height="1600"></div>
+          <figcaption>可靠性：自检与决策审计</figcaption>
+        </figure>
+      </div>
+    </div>
+  </section>
+
+  <section id="features">
+    <div class="wrap">
+      <div class="head reveal">
+        <div class="kicker">功能</div>
+        <h2>该有的都有，不该有的都没有</h2>
+        <p>没有云同步、没有账号、没有网络请求。所有数据只写在本机的数据库里，备份是你可以自己拿走的 JSON 文件。</p>
+      </div>
+      <div class="grid g3 reveal">
+        <div class="card"><div class="ico">⌚</div><h3>多个服药时间</h3><p>一个药品可挂任意多个提醒时间，每个时间独立设置重复规则：每天 / 隔天 / 每周指定 / 每 N 天 / 吃 X 天停 Y 天 / 每月几号。</p></div>
+        <div class="card"><div class="ico">±</div><h3>数量与库存</h3><p>加号减号步进记录，液体支持 0.5 步长；状态由数量推导（已服 / 部分 / 未服），库存自动扣减并在不足时提醒。</p></div>
+        <div class="card"><div class="ico">▤</div><h3>桌面小组件</h3><p>单一可缩放条目，按「即将服用 &gt; 未服药 &gt; 今日稍后 &gt; 已服用」排序，刷新间隔 10 秒到 10 分钟可选。</p></div>
+        <div class="card"><div class="ico">◱</div><h3>适老与无障碍</h3><p>可选大字体（总字号封顶 1.6×，布局自动换行而不是压缩）、高对比模式、简化模式、更大的触控目标，以及一键适老预设。</p></div>
+        <div class="card"><div class="ico">↺</div><h3>备份与导出</h3><p>JSON 全量备份与恢复、CSV 记录导出（方便交给医生）。文件在你自己手里，不经任何服务器。</p></div>
+        <div class="card"><div class="ico">☾</div><h3>主题</h3><p>Material 3、动态取色、浅色 / 深色 / 跟随系统，三套主题色。数字与时间始终使用等宽字体。</p></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="privacy">
+    <div class="wrap g2 grid" style="align-items:start">
+      <div class="reveal">
+        <div class="kicker">隐私</div>
+        <h2 style="margin:12px 0 14px">它连网络的权限都没有</h2>
+        <p class="muted">应用的清单里没有 <span class="mono">INTERNET</span> 权限。这不是一句承诺，而是可以在安装包里核对的事实：没有网络权限，就不可能上传任何东西。</p>
+        <div class="facts" style="margin-top:22px">
+          <span>无账号、无登录</span>
+          <span>无广告、无统计 SDK</span>
+          <span>无云同步</span>
+          <span>不做用药建议</span>
+        </div>
+      </div>
+      <blockquote class="reveal">
+        本应用只做用药记录与提醒，<b>不提供任何诊断、治疗或用药建议</b>。请严格遵照医生或药师的处方服药。<br><br>
+        提醒功能依赖系统闹钟与通知服务，在省电模式、后台限制或权限被收回等情况下可能延迟或失效，<b>请勿把它当作唯一的用药保障手段</b>。
+      </blockquote>
+    </div>
+  </section>
+
+  <section id="changelog">
+    <div class="wrap">
+      <div class="head reveal">
+        <div class="kicker">更新日志</div>
+        <h2>1.5.0</h2>
+        <p>这一版的重点是「没人看见的那一次提醒」，以及在真机上发现的三个缺陷。</p>
+      </div>
+      <div class="grid g2 reveal">
+        <div class="card">
+          <h3>新增</h3>
+          <ul class="changelog">
+            <li><b>解锁补提醒</b>：解锁或回到应用时，立刻检查所有已超时且未记录的剂量（含已判未服药、只吃了一半），合并成一条提醒。</li>
+            <li><b>提醒次数与间隔</b>：每个药 1–10 次，从第一次解锁提醒开始算；两次之间可设最小间隔；免打扰时段只留静默通知且不消耗次数。</li>
+            <li><b>全屏提醒</b>（可选，默认关）：像系统闹钟一样点亮屏幕，Android 14+ 未授权时自动退化为横幅。</li>
+            <li><b>字体自适应</b>：总字号封顶 1.6×，所有选项按钮自动换行，正文不再被裁切。</li>
+          </ul>
+        </div>
+        <div class="card">
+          <h3>修复</h3>
+          <ul class="changelog">
+            <li><b>已判定未服药的剂量会被整条管线无视</b>：过期查询排除了该状态，导致跨午夜、或已写过标记的剂量连静默通知都没有。</li>
+            <li><b>无限重算风暴</b>：重算 → 请求守护服务 → 服务重算 形成闭环，真机上 86 秒写入 491 条记录、每秒重排全部闹钟约 25 次。</li>
+            <li><b>已到点仍显示「未到时间」</b>：剂量行在时间到之前物化后状态不再更新，「未服药」红标因此形同虚设。</li>
+            <li><b>卡片「已过 N 分钟」错位与断行</b>：中文可在任意两字间断行，单位词会被从中间撕开。</li>
+            <li><b>导入失败会清空数据库</b>：校验发生在清表之后，一个没有药品的备份会先清空再报错。现在校验与清表顺序已修正。</li>
+          </ul>
+        </div>
+      </div>
+      <p class="muted" style="margin-top:18px">历史版本见 <a href="https://github.com/ChenyangLT/meditrack/releases" style="color:var(--mint)">GitHub Releases</a>。</p>
+    </div>
+  </section>
+
+  <section id="download">
+    <div class="wrap">
+      <div class="head reveal">
+        <div class="kicker">下载</div>
+        <h2>装到你的手机上</h2>
+      </div>
+      <div class="grid g2 reveal" style="align-items:start">
+        <div>
+          <div class="cta" style="margin-top:0">
+            <a class="btn btn-primary" href="https://github.com/ChenyangLT/meditrack/releases">前往 GitHub Releases 下载</a>
+            <a class="btn btn-ghost" href="https://github.com/ChenyangLT/meditrack">源码与文档</a>
+          </div>
+          <div class="facts" style="margin-top:20px">
+            <span>Android 8.0+</span><span>约 3.4 MB</span><span>开源 · MIT</span>
+          </div>
+        </div>
+        <div class="note">
+          <strong>关于安装包</strong><br>
+          当前安装包使用 Android 通用调试签名，因此可以覆盖安装并保留数据；调试签名是公开的，请把它当作自用与测试的分发方式。数据保存在本机，升级不会清空记录。
+        </div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap fgrid">
+    <a class="brand" href="#top" style="font-size:.95rem"><img src="assets/icon.svg" alt="">药准时 · MediTrack</a>
+    <span class="mono muted">v1.5.0</span>
+    <nav style="font-size:.9rem">
+      <a href="https://github.com/ChenyangLT/meditrack">GitHub</a>
+      <a href="https://github.com/ChenyangLT/meditrack/blob/main/LICENSE">MIT License</a>
+      <a href="https://github.com/ChenyangLT/meditrack/releases">Releases</a>
+      <a href="#top">回到顶部</a>
+    </nav>
+  </div>
+  <div class="wrap muted" style="margin-top:22px;font-size:.84rem">
+    © 2026 ChenyangLT · 本页不使用任何第三方脚本、字体或统计代码。
+  </div>
+</footer>
+
+<script>
+  // Sticky bar gains its hairline only once the page has moved — a border on a page that has not
+  // scrolled yet is a line drawn for no reason.
+  var header = document.getElementById('top');
+  var onScroll = function () { header.classList.toggle('scrolled', window.scrollY > 8); };
+  onScroll();
+  addEventListener('scroll', onScroll, { passive: true });
+
+  // Reveal once per element, and only where motion is welcome.
+  var reduce = matchMedia('(prefers-reduced-motion: reduce)');
+  var targets = document.querySelectorAll('.reveal');
+  if (reduce.matches || !('IntersectionObserver' in window)) {
+    targets.forEach(function (el) { el.classList.add('in'); });
+  } else {
+    var io = new IntersectionObserver(function (entries) {
+      entries.forEach(function (e) {
+        if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target); }
+      });
+    }, { rootMargin: '0px 0px -8% 0px', threshold: 0.05 });
+    targets.forEach(function (el) { io.observe(el); });
+  }
+</script>
+</body>
+</html>
