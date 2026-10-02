@@ -175,6 +175,22 @@
      same width, and the two-up row is centred (columns 2-5 of 6) instead of hanging left. */
   .shotstrip{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:22px;justify-items:center;align-items:start}
   .shotstrip figure{grid-column:span 2;width:100%;max-width:340px;margin:0}
+  /* The screenshots are 720x1600 (aspect 0.45). At 340px wide that is a 756px-tall phone - the
+     gallery turned into two rows of very long images and dominated the page. Showing them at a
+     phone-like 5:7 with the top pinned crops the uninformative lower half and lets the bottom fade,
+     so each image reads as a device rather than as a tall strip. */
+  .shotstrip .phone img{
+    /* height:auto is load-bearing: the markup carries width="720" height="1600" as intrinsic-size
+       hints against layout shift, and without a CSS height the attribute wins as a presentation hint.
+       That pinned every screenshot to 1600px tall, after which object-fit:cover cropped the *sides*
+       instead of the bottom - the images looked zoomed in, not shortened. */
+    height:auto;
+    aspect-ratio:5 / 7;
+    object-fit:cover;
+    object-position:top center;
+    -webkit-mask-image:linear-gradient(#000 86%,transparent);
+    mask-image:linear-gradient(#000 86%,transparent);
+  }
   .shotstrip figure:nth-child(4){grid-column:2 / span 2}
   .shotstrip figure:nth-child(5){grid-column:4 / span 2}
   @media (max-width:1040px){
