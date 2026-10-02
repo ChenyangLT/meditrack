@@ -19,12 +19,13 @@ android {
         // Bumped per delivery so each build can install straight over the last one (both are signed
         // with the same key, so a higher versionCode is what makes that an upgrade rather than a
         // downgrade refusal).
+        //   6 / 1.5.0 - unlock catch-up («解锁补提醒»), legacy idle deferral retired, capped font scale
         //   5 / 1.4.0 - one resizable widget, no stepper buttons, 10s-10min refresh, colour ordering
         //   4 / 1.3.0 - background guard service, alarm-clock alarms and lost-alarm evidence
         //   3 / 1.2.0 - widget size family (4x1 / 4x2 / 4x3 / 4x4)
         //   2 / 1.1.0 - reminder pipeline rewrite
-        versionCode = 5
-        versionName = "1.4.0"
+        versionCode = 6
+        versionName = "1.5.0"
 
         // Custom runner that swaps in HiltTestApplication for the instrumented tests.
         testInstrumentationRunner = "com.meditrack.MediTrackTestRunner"

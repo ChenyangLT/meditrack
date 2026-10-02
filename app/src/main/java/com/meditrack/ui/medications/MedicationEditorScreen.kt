@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -75,6 +76,8 @@ import com.meditrack.data.local.entity.MedicationColorTag
 import com.meditrack.data.local.entity.MedicationIcon
 import com.meditrack.data.local.entity.RepeatRuleType
 import com.meditrack.core.theme.prefs
+import com.meditrack.ui.components.AdaptiveButtonRow
+import com.meditrack.ui.components.AdaptiveChipRow
 
 /**
  * 添加 / 编辑药品.
@@ -348,33 +351,21 @@ private fun DoseCard(
     onMaxDose: (String) -> Unit,
 ) {
     SectionCard(title = "剂量") {
-        Text("剂型", style = MaterialTheme.typography.labelLarge)
-        Spacer(modifier = Modifier.height(6.dp))
-        FlowRow(
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalArrangement = Arrangement.spacedBy(4.dp),
-        ) {
-            DosageForm.entries.forEach { dosageForm ->
-                FilterChip(
-                    selected = form.dosageForm == dosageForm,
-                    onClick = { onForm(dosageForm) },
-                    label = { Text(dosageForm.label) },
-                )
-            }
-        }
+        AdaptiveChipRow(
+            title = "剂型",
+            options = DosageForm.entries,
+            selected = form.dosageForm,
+            labelOf = { it.label },
+            onSelect = onForm,
+        )
 
-        Spacer(modifier = Modifier.height(12.dp))
-        Text("单位", style = MaterialTheme.typography.labelLarge)
-        Spacer(modifier = Modifier.height(6.dp))
-        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            DosageUnit.entries.forEach { unit ->
-                FilterChip(
-                    selected = form.unit == unit,
-                    onClick = { onUnit(unit) },
-                    label = { Text(unit.label) },
-                )
-            }
-        }
+        AdaptiveChipRow(
+            title = "单位",
+            options = DosageUnit.entries,
+            selected = form.unit,
+            labelOf = { it.label },
+            onSelect = onUnit,
+        )
 
         Spacer(modifier = Modifier.height(12.dp))
         OutlinedTextField(
@@ -537,28 +528,23 @@ private fun ScheduleCard(
                     }
                 }
 
-                Spacer(modifier = Modifier.height(8.dp))
-                Text("重复", style = MaterialTheme.typography.labelMedium)
-                Spacer(modifier = Modifier.height(4.dp))
-                FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalArrangement = Arrangement.spacedBy(2.dp),
-                ) {
-                    RepeatRuleType.entries.forEach { type ->
-                        FilterChip(
-                            selected = slot.repeatType == type,
-                            onClick = { onRepeatType(slot.key, type) },
-                            label = {
-                                Text(type.label, style = MaterialTheme.typography.labelSmall)
-                            },
-                        )
-                    }
-                }
+                AdaptiveChipRow(
+                    title = "重复",
+                    options = RepeatRuleType.entries,
+                    selected = slot.repeatType,
+                    labelOf = { it.label },
+                    onSelect = { onRepeatType(slot.key, it) },
+                )
 
                 when (slot.repeatType) {
                     RepeatRuleType.WEEKLY -> {
                         Spacer(modifier = Modifier.height(6.dp))
-                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        // Seven day chips wrap rather than squeeze: the row has no title of its
+                        // own, so it stays a bare FlowRow.
+                        FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            verticalArrangement = Arrangement.spacedBy(2.dp),
+                        ) {
                             listOf("一", "二", "三", "四", "五", "六", "日").forEachIndexed { i, name ->
                                 val iso = i + 1
                                 FilterChip(
@@ -652,7 +638,9 @@ private fun MonthDayGrid(
     selected: Set<Int>,
     onToggle: (Int) -> Unit,
 ) {
-    // Fixed 44dp targets, laid out in rows of seven to echo a calendar month.
+    // 40dp-wide targets, laid out in rows of seven to echo a calendar month. The width stays
+    // exact so the columns line up; the height is a minimum rather than a fixed 40dp so a larger
+    // font makes the rows taller instead of letting the numbers spill into the row below.
     val days = remember { (1..31).toList() }
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         days.chunked(7).forEach { week ->
@@ -661,7 +649,8 @@ private fun MonthDayGrid(
                     val isSelected = selected.contains(day)
                     Box(
                         modifier = Modifier
-                            .size(40.dp)
+                            .width(40.dp)
+                            .heightIn(min = 40.dp)
                             .background(
                                 color = if (isSelected) {
                                     MaterialTheme.colorScheme.primaryContainer
@@ -686,7 +675,7 @@ private fun MonthDayGrid(
                     }
                 }
                 // Pad the last row (31 days = 4 rows of 7 + 3) so columns stay aligned.
-                repeat(7 - week.size) { Box(modifier = Modifier.size(40.dp)) }
+                repeat(7 - week.size) { Box(modifier = Modifier.width(40.dp)) }
             }
         }
     }
@@ -700,9 +689,14 @@ private fun NumberStepperRow(
     range: IntRange,
     onChange: (Int) -> Unit,
 ) {
-    Row(verticalAlignment = Alignment.CenterVertically) {
+    // The label and the two buttons share one line on purpose, so this is a wrapping row rather
+    // than a fixed Row: at a large font scale the label plus two buttons no longer fit, and a Row
+    // hands the trailing "+" whatever is left - which can be nothing.
+    AdaptiveButtonRow(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
         Text(label, style = MaterialTheme.typography.bodyMedium)
-        Spacer(modifier = Modifier.width(8.dp))
         TextButton(
             onClick = { if (value > range.first) onChange(value - 1) },
             enabled = value > range.first,
@@ -757,17 +751,13 @@ private fun AdvancedCard(
     }
 
     SectionCard(title = "更多设置") {
-        Text("服用时机", style = MaterialTheme.typography.labelLarge)
-        Spacer(modifier = Modifier.height(6.dp))
-        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            FoodTiming.entries.forEach { timing ->
-                FilterChip(
-                    selected = form.foodTiming == timing,
-                    onClick = { onFoodTiming(timing) },
-                    label = { Text(timing.label) },
-                )
-            }
-        }
+        AdaptiveChipRow(
+            title = "服用时机",
+            options = FoodTiming.entries,
+            selected = form.foodTiming,
+            labelOf = { it.label },
+            onSelect = onFoodTiming,
+        )
 
         Spacer(modifier = Modifier.height(12.dp))
         OutlinedTextField(

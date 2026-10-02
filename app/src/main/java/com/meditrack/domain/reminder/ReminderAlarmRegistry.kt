@@ -149,6 +149,14 @@ class ReminderAlarmRegistry @Inject constructor(
         runCatching { dataStore.data.first()[KEY_GUARD_SEEN] }.getOrNull() ?: 0L
 
     /**
+     * True when the guard service has not checked in recently enough to trust that it is running.
+     *
+     * The rule itself lives in [GuardLiveness] so it can be tested without a device.
+     */
+    suspend fun guardIsStale(nowMillis: Long): Boolean =
+        GuardLiveness.needsRestart(guardLastSeenAt(), nowMillis)
+
+    /**
      * The largest lateness the OS has inflicted on a delivery, in milliseconds.
      *
      * This is the measurement that turns "it was late again" into something actionable: a persistent
@@ -196,6 +204,53 @@ class ReminderAlarmRegistry @Inject constructor(
         val KEY_LOST_ALARMS = longPreferencesKey("reminder_lost_alarms")
         val KEY_GUARD_SEEN = longPreferencesKey("reminder_guard_seen_at")
         val KEY_WORST_DRIFT = longPreferencesKey("reminder_worst_drift_millis")
+    }
+}
+
+/**
+ * When to ask the platform for the background guard service.
+ *
+ * ## The bug this exists to prevent
+ *
+ * "Ask for the guard service on every reconcile pass" sounds harmless and is not:
+ * `reconcile()` → `ensureRunning()` → `Service.onStartCommand()` → `reconcile()` → `ensureRunning()` …
+ * `startForegroundService` on an already-running service simply delivers another
+ * `onStartCommand`, so the cycle had no natural end. On a real device it produced **491 reconcile
+ * passes in 86 seconds** (median gap 22 ms), each one cancelling and re-arming every alarm, writing
+ * audit rows, and re-posting the ongoing notification.
+ *
+ * The consequences were not cosmetic: the audit trail was overwritten every ~90 seconds (so
+ * 「最近的提醒决策」 could never show anything older), the app burned CPU continuously, and every dose
+ * alarm was cancelled and re-armed dozens of times a second until the moment it fired - which is
+ * exactly the kind of behaviour an aggressively-managed ROM reacts to by freezing the app.
+ *
+ * The fix is to ask only when there is a *reason* to: the guard is missing, or its check-in has gone
+ * stale. Because the service stamps its liveness before it does any work, the pass it triggers can see
+ * that fresh stamp and stops asking - the cycle closes after exactly one extra pass.
+ */
+object GuardLiveness {
+
+    /**
+     * How long a guard check-in is trusted.
+     *
+     * Long enough that ordinary passes never re-ask (which is what closes the loop), short enough that
+     * a guard which died without running `onDestroy` is still noticed within a few minutes.
+     */
+    const val FRESH_MILLIS = 3 * 60_000L
+
+    /**
+     * True when the guard should be (re)requested from the platform.
+     *
+     * A timestamp in the future (a clock jump) counts as fresh rather than stale, because asking again
+     * cannot help and the loop is the thing being defended against.
+     */
+    fun needsRestart(
+        lastSeenAt: Long,
+        nowMillis: Long,
+        freshMillis: Long = FRESH_MILLIS,
+    ): Boolean {
+        if (lastSeenAt <= 0L) return true
+        return nowMillis - lastSeenAt > freshMillis
     }
 }
 

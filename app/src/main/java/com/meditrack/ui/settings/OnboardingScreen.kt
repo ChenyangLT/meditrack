@@ -184,6 +184,9 @@ fun OnboardingScreen(
                             text = "小提示：长按桌面空白处 → 添加小组件 → 选择「药准时」，就能随时看到还没吃的药。",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            // The paragraph owns the rest of the line next to the icon, so a long
+                            // reminder wraps instead of being clipped by the row.
+                            modifier = Modifier.weight(1f),
                         )
                     }
                 }

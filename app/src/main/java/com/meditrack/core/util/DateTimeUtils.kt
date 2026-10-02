@@ -96,13 +96,41 @@ object DateTimeUtils {
     fun minutesUntil(targetMillis: Long, nowMillis: Long = System.currentTimeMillis()): Long =
         (targetMillis - nowMillis) / 60_000L
 
-    /** "还有 12 分钟" / "已过 35 分钟" helper for the today list. */
+    /**
+     * A space that never breaks a line.
+     *
+     * Chinese has no inter-word spaces, so the space between a count and its unit is the *only*
+     * break opportunity in "已过 109 分钟" - which means a narrow card breaks it there and produces
+     * "已过 109 分" / "分钟". That reads as a layout bug, and on a medication card it is worse than
+     * cosmetic: the unit is the part that says whether the number means tablets, minutes or ml.
+     */
+    const val NBSP = "\u00A0"
+
+    /**
+     * A word joiner: UAX #14 class WJ, which forbids a line break at that exact position.
+     *
+     * [NBSP] is not enough on its own for Chinese. A CJK string has a legitimate break opportunity
+     * between *any* two ideographs, so "已过 151 分钟" happily breaks as "已过 151 分" / "钟" no matter
+     * what the space does - the unit word itself has to be made unbreakable.
+     */
+    const val WORD_JOINER = "\u2060"
+
+    /** 分钟 as one unbreakable word, so the unit can never be split down the middle. */
+    private const val MINUTES_WORD = "分${WORD_JOINER}钟"
+
+    /**
+     * "还有 12 分钟" / "已过 35 分钟" helper for the today list.
+     *
+     * The count and its unit are joined by [NBSP] (so the number never separates from what it
+     * measures) and the unit itself is welded together with [WORD_JOINER]. The phrase therefore moves
+     * to the next line whole, or not at all.
+     */
     fun relativeLabel(targetMillis: Long, nowMillis: Long = System.currentTimeMillis()): String {
         val diff = minutesUntil(targetMillis, nowMillis)
         return when {
-            diff > 0 -> "还有 $diff 分钟"
+            diff > 0 -> "还有 $diff${NBSP}$MINUTES_WORD"
             diff == 0L -> "就是现在"
-            else -> "已过 ${-diff} 分钟"
+            else -> "已过 ${-diff}${NBSP}$MINUTES_WORD"
         }
     }
 }

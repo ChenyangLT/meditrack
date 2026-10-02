@@ -32,7 +32,7 @@ import com.meditrack.data.local.entity.Schedule
         DoseEvent::class,
         ReminderEvent::class,
     ],
-    version = 3,
+    version = 4,
     exportSchema = true,
 )
 @TypeConverters(Converters::class)
@@ -122,6 +122,26 @@ abstract class MediTrackDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * v3 -> v4, the "解锁补提醒" release.
+         *
+         * Additive and lossless, and both defaults are the honest historical value:
+         *
+         *  - `dose_logs.unlockReminderCount` - `DEFAULT 0` means "this dose has never been announced
+         *    by an unlock catch-up", which is true of every row that exists at upgrade time. The
+         *    feature can therefore start speaking up immediately instead of waiting a day.
+         *  - `dose_logs.unlockReminderAtMillis` - NULL means "never", so the minimum-gap rule is
+         *    inert until the first unlock catch-up actually happens.
+         */
+        val MIGRATION_3_4 = object : Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "ALTER TABLE dose_logs ADD COLUMN unlockReminderCount INTEGER NOT NULL DEFAULT 0"
+                )
+                db.execSQL("ALTER TABLE dose_logs ADD COLUMN unlockReminderAtMillis INTEGER")
+            }
+        }
+
         @Volatile
         private var INSTANCE: MediTrackDatabase? = null
 
@@ -137,7 +157,7 @@ abstract class MediTrackDatabase : RoomDatabase() {
         fun build(context: Context): MediTrackDatabase =
             Room.databaseBuilder(context, MediTrackDatabase::class.java, DATABASE_NAME)
                 .addCallback(CALLBACK)
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
                 // No destructive fallback on purpose: silently wiping a medication history to
                 // recover from a schema mistake would be far worse than a visible crash, so a
                 // missing migration must surface loudly during development.

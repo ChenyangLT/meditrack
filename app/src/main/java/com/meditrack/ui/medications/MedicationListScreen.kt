@@ -5,6 +5,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -52,7 +54,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -70,7 +71,7 @@ import com.meditrack.core.theme.prefs
  * Disabling a medication is offered as a switch rather than requiring a delete: a paused course of
  * treatment must keep its history and be resumable in one tap.
  */
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun MedicationListScreen(
     onAddMedication: () -> Unit,
@@ -137,9 +138,14 @@ fun MedicationListScreen(
                 shape = RoundedCornerShape(14.dp),
             )
 
-            Row(
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+            // FlowRow, not Row: three filter chips at a large font scale do not fit one line, and
+            // a Row hands the last chip whatever is left (which can be nothing).
+            FlowRow(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 4.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
                 MedicationFilter.entries.forEach { filter ->
                     FilterChip(
@@ -230,8 +236,8 @@ private fun MedicationRow(
                         text = model.name,
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.SemiBold,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
+                        // Deliberately not single-line: a drug name is the one string this app must
+                        // never shorten, and the ellipsis hid the distinguishing tail of long ones.
                         modifier = Modifier.weight(1f, fill = false),
                     )
                     if (inactive) {
@@ -250,13 +256,16 @@ private fun MedicationRow(
                     text = model.timesLabel,
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
                 )
 
                 Spacer(modifier = Modifier.padding(top = 4.dp))
 
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                // A wrapping row: two AssistChips ("100mg/片" + "每天 3 次") overflow a narrow
+                // card once the label metrics grow.
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
                     if (model.subtitle.isNotBlank()) {
                         MiniTag(model.subtitle)
                     }
@@ -281,6 +290,10 @@ private fun MedicationRow(
                             style = MaterialTheme.typography.labelMedium,
                             color = if (model.isStockLow) MaterialTheme.colorScheme.error
                             else MaterialTheme.colorScheme.onSurfaceVariant,
+                            // weight, not wrap-content: the trailing warning icon is a fixed-size
+                            // child measured after this text, so an unweighted text could starve it
+                            // down to zero width at a large font scale.
+                            modifier = Modifier.weight(1f, fill = false),
                         )
                         if (model.isStockLow) {
                             Spacer(modifier = Modifier.width(4.dp))

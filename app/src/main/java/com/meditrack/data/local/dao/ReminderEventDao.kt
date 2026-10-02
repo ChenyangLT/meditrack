@@ -41,7 +41,9 @@ interface ReminderEventDao {
         """
         SELECT COUNT(*) FROM reminder_events
          WHERE timestamp >= :sinceMillis
-           AND decisionCode IN ('REMIND', 'REMIND_REPEAT', 'PRE_REMIND', 'CATCH_UP', 'MISSED')
+           AND decisionCode IN (
+                 'REMIND', 'REMIND_REPEAT', 'PRE_REMIND', 'CATCH_UP', 'MISSED', 'UNLOCK_CATCH_UP'
+               )
         """
     )
     suspend fun countDeliveredSince(sinceMillis: Long): Int

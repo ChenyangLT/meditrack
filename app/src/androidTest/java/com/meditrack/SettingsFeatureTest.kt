@@ -2,7 +2,7 @@ package com.meditrack
 
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
-import androidx.compose.ui.test.assertIsOff
+import androidx.compose.ui.test.assertIsOn
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.isToggleable
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
@@ -23,7 +23,8 @@ import org.junit.runner.RunWith
 
 /**
  * Verifies the reminder options the user asked to be configurable, and - most importantly - that the
- * phone-usage monitoring is **off by default** and genuinely inert until switched on.
+ * unlock catch-up («解锁补提醒») is **on by default**, since it is the mechanism that turns a
+ * reminder nobody saw into a second chance.
  *
  * Scrolling is done with [performScrollToNode] against the tagged settings list. `performScrollTo()`
  * cannot be used here: the settings page is a LazyColumn, so an item far down the page is not
@@ -73,57 +74,63 @@ class SettingsFeatureTest {
     }
 
     /**
-     * The usage-monitoring master switch must exist, be described as opt-in, and start OFF.
+     * The unlock catch-up must exist, explain itself, and start **ON**.
      *
-     * This is the headline requirement: the feature must not be imposed on anyone.
+     * This is the headline requirement of the release: a reminder that fired while the phone sat in a
+     * pocket has to get a second chance the moment the user picks it up. It ships enabled because the
+     * alternative - a missed dose nobody was ever told about - is precisely the failure it removes.
      */
     @Test
-    fun usageMonitoring_isOffByDefault() {
-        scrollTo("手机未使用时暂缓提醒")
-        composeRule.onAllNodesWithText("手机未使用时暂缓提醒").onFirst().assertIsDisplayed()
+    fun unlockCatchUp_isOnByDefault() {
+        scrollTo("解锁补提醒")
+        composeRule.onAllNodesWithText("解锁补提醒").onFirst().assertIsDisplayed()
 
-        scrollTo("启用该功能")
-        composeRule.onNodeWithText("启用该功能").assertIsDisplayed()
+        scrollTo("解锁时补提醒没吃的药")
+        composeRule.onNodeWithText("解锁时补提醒没吃的药").assertIsDisplayed()
         // The switch is a sibling of its label, so it is addressed by tag rather than by text.
-        composeRule.onNodeWithTag(MediTrackTestTags.IDLE_DEFERRAL_SWITCH).assertIsOff()
+        composeRule.onNodeWithTag(MediTrackTestTags.UNLOCK_REMINDER_SWITCH).assertIsOn()
     }
 
-    /** The explanatory copy must state the behaviour and the default. */
+    /** The explanatory copy must state what the feature does and who it stays quiet for. */
     @Test
-    fun usageMonitoring_explainsItselfAndTheDefault() {
-        scrollTo("启用该功能")
+    fun unlockCatchUp_explainsItself() {
+        scrollTo("解锁时补提醒没吃的药")
 
-        composeRule.onNodeWithText("默认关闭。关闭时应用不会读取任何手机使用状态").assertIsDisplayed()
+        composeRule.onNodeWithText("默认开启。已吃掉、已跳过、点了「稍后」且还没到时间的都不会打扰")
+            .assertIsDisplayed()
+    }
+
+    /** While the feature is on its budget, spacing and full-screen controls are all offered. */
+    @Test
+    fun unlockCatchUp_revealsItsOptions() {
+        scrollTo("每个药提醒多少次")
+
+        scrollTo("每个药提醒多少次")
+        composeRule.onAllNodesWithText("每个药提醒多少次").onFirst().assertIsDisplayed()
+
+        scrollTo("两次补提醒之间至少间隔")
+        composeRule.onAllNodesWithText("两次补提醒之间至少间隔").onFirst().assertIsDisplayed()
+
+        scrollTo("全屏提醒（像闹钟一样）")
+        composeRule.onAllNodesWithText("全屏提醒（像闹钟一样）").onFirst().assertIsDisplayed()
     }
 
     /**
-     * While the feature is off its sub-options stay hidden, so the screen does not offer knobs for
-     * something that is not running.
+     * Switching it off hides its sub-options, so the screen does not offer knobs for something that is
+     * not running.
      */
     @Test
-    fun usageMonitoring_subOptionsHiddenWhileOff() {
-        scrollTo("启用该功能")
-
-        composeRule.onAllNodesWithText("多久算「没人用」").assertCountEquals(0)
-        composeRule.onAllNodesWithText("息屏时也暂缓").assertCountEquals(0)
-    }
-
-    /** Turning it on must reveal the threshold and screen-off controls. */
-    @Test
-    fun enablingUsageMonitoring_revealsItsOptions() {
-        scrollTo("启用该功能")
-        composeRule.onNodeWithTag(MediTrackTestTags.IDLE_DEFERRAL_SWITCH).performClick()
+    fun disablingUnlockCatchUp_hidesItsSubOptions() {
+        scrollTo("解锁时补提醒没吃的药")
+        composeRule.onNodeWithTag(MediTrackTestTags.UNLOCK_REMINDER_SWITCH).performClick()
         composeRule.waitForIdle()
 
-        scrollTo("多久算「没人用」")
-        composeRule.onAllNodesWithText("多久算「没人用」").onFirst().assertIsDisplayed()
-
-        scrollTo("息屏时也暂缓")
-        composeRule.onAllNodesWithText("息屏时也暂缓").onFirst().assertIsDisplayed()
+        scrollTo("解锁时补提醒没吃的药")
+        composeRule.onAllNodesWithText("每个药提醒多少次").assertCountEquals(0)
+        composeRule.onAllNodesWithText("全屏提醒（像闹钟一样）").assertCountEquals(0)
 
         // Leave the device as we found it so other tests are unaffected.
-        scrollTo("启用该功能")
-        composeRule.onNodeWithTag(MediTrackTestTags.IDLE_DEFERRAL_SWITCH).performClick()
+        composeRule.onNodeWithTag(MediTrackTestTags.UNLOCK_REMINDER_SWITCH).performClick()
         composeRule.waitForIdle()
     }
 }

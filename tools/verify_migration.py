@@ -1,5 +1,5 @@
 """
-Migration verification for MediTrack v2 -> v3.
+Migration verification for MediTrack, v2 -> v3 -> v4.
 
 Why this exists: an instrumented MigrationTestHelper needs a device, and there is none attached.
 This harness gets the same evidence on the JVM by doing what Room's own schema validation does:
@@ -7,9 +7,11 @@ This harness gets the same evidence on the JVM by doing what Room's own schema v
   1. Build a v2 database using the *checked-in* `2.json` DDL, and put realistic rows in it.
   2. Execute the migration statements that are read out of `MediTrackDatabase.kt` itself - not a
      copy of them, so the test cannot drift from the shipped code.
-  3. Build a fresh v3 database from the *generated* `3.json` DDL.
-  4. Diff the two with PRAGMA, column by column, index by index, foreign key by foreign key.
-  5. Assert the v2 rows survived the upgrade.
+  3. Build a fresh database from the *generated* schema export and diff the two with PRAGMA, column
+     by column, index by index, foreign key by foreign key.
+  4. Repeat for every subsequent version, on the *same* database, so the check proves what an
+     upgrading user actually experiences: one database walked forward through the whole chain.
+  5. Assert the original rows survived every step, with sensible defaults in the new columns.
 
 The one deliberate difference is documented in `compare_tables`.
 """
@@ -58,17 +60,19 @@ def create_schema(conn, database):
     conn.commit()
 
 
-def extract_migration_sql():
+def extract_migration_sql(name):
     """
-    Pulls the MIGRATION_2_3 statements straight out of the Kotlin source.
+    Pulls the statements of one migration straight out of the Kotlin source.
 
     Reading the real file rather than restating the SQL here is the whole point: a harness with its
     own copy of the migration would happily pass while the shipped one is wrong.
+
+    @param name the `val` holding the migration, e.g. `MIGRATION_2_3`
     """
     with open(KOTLIN_DB, encoding="utf-8") as fh:
         source = fh.read()
 
-    start = source.index("val MIGRATION_2_3")
+    start = source.index(f"val {name}")
     # The block ends at the next top-level `val` or the closing of the companion object.
     end = source.find("val MIGRATION", start + 10)
     if end == -1:
@@ -82,7 +86,7 @@ def extract_migration_sql():
         statements.append("".join(parts))
 
     if not statements:
-        raise SystemExit("could not extract any execSQL statement from MIGRATION_2_3")
+        raise SystemExit(f"could not extract any execSQL statement from {name}")
     return statements
 
 
@@ -172,13 +176,14 @@ def compare_tables(migrated, expected, table):
 
 def main():
     print("=" * 78)
-    print("MediTrack v2 -> v3 migration verification")
+    print("MediTrack v2 -> v3 -> v4 migration verification")
     print("=" * 78)
 
     v2 = load_schema(2)
     v3 = load_schema(3)
+    v4 = load_schema(4)
 
-    statements = extract_migration_sql()
+    statements = extract_migration_sql("MIGRATION_2_3")
     print(f"\nExtracted {len(statements)} statement(s) from MIGRATION_2_3:")
     for s in statements:
         print("  - " + " ".join(s.split())[:110] + ("..." if len(s) > 110 else ""))
@@ -259,9 +264,46 @@ def main():
         "medication data survived",
     )
 
+    # -------------------------------------------------------------- 3 -> 4
+    #
+    # The same database is walked forward rather than a fresh one being built, because that is what
+    # an upgrading user actually has: one file that has to survive every step of the chain.
+    print("\n--- applying MIGRATION_3_4 ---")
+    unlock_statements = extract_migration_sql("MIGRATION_3_4")
+    print(f"Extracted {len(unlock_statements)} statement(s) from MIGRATION_3_4:")
+    for s in unlock_statements:
+        print("  - " + " ".join(s.split())[:110] + ("..." if len(s) > 110 else ""))
+    for statement in unlock_statements:
+        try:
+            migrated.execute(statement)
+        except sqlite3.Error as exc:
+            check(False, f"statement failed: {exc} :: {' '.join(statement.split())[:90]}")
+    migrated.commit()
+    check(True, "every v4 migration statement executed")
+
+    print("\n--- diffing the migrated database against the generated v4 schema ---")
+    expected_v4 = sqlite3.connect(":memory:")
+    create_schema(expected_v4, v4)
+    for entity in v4["entities"]:
+        compare_tables(migrated, expected_v4, entity["tableName"])
+
+    print("\n--- data preservation across 3 -> 4 ---")
+    after_v4 = migrated.execute(
+        "SELECT id, medicationId, plannedMinuteOfDay, status, escalationCount, "
+        "preRemindedAtMillis, unlockReminderCount, unlockReminderAtMillis FROM dose_logs"
+    ).fetchall()
+    check(
+        after_v4 == [(7, 1, 480, "DUE", 0, None, 0, None)],
+        "the dose survived with a zero unlock budget and no recorded catch-up",
+    )
+    check(
+        migrated.execute("SELECT name FROM medications WHERE id=1").fetchone()[0] == "阿司匹林",
+        "medication data still intact after the v4 step",
+    )
+
     # ------------------------------------------- idempotence of IF NOT EXISTS
-    print("\n--- re-running the migration must not corrupt anything ---")
-    for statement in statements:
+    print("\n--- re-running the migrations must not corrupt anything ---")
+    for statement in statements + unlock_statements:
         try:
             migrated.execute(statement)
         except sqlite3.Error:
@@ -272,6 +314,10 @@ def main():
     check(
         migrated.execute("SELECT COUNT(*) FROM dose_logs").fetchone()[0] == 1,
         "data still intact after a re-run",
+    )
+    check(
+        migrated.execute("SELECT unlockReminderCount FROM dose_logs").fetchone()[0] == 0,
+        "the unlock budget survived the re-run untouched",
     )
 
     # ------------------------------------------------------------- summary
@@ -285,7 +331,10 @@ def main():
         for f in failures:
             print("  - " + f)
         return 1
-    print("\nRESULT: PASSED - the migrated database is schema-identical to Room's v3 export.")
+    print(
+        "\nRESULT: PASSED - the database walked from v2 to v4 and is schema-identical to Room's "
+        "v4 export at every step."
+    )
     return 0
 
 

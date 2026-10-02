@@ -26,6 +26,14 @@ data class ReminderReport(
     val armedDoses: Int,
     val suppressed: Int,
     val deferred: Int,
+    /**
+     * Doses announced by an unlock catch-up during this pass.
+     *
+     * Reported separately from [delivered] because it answers a different question: "delivered" is
+     * the schedule doing its job, while a non-zero `unlocked` means the user had *already* missed
+     * these and only learned about them when they picked the phone up.
+     */
+    val unlocked: Int = 0,
     /** Doses whose schedule the pass had to *correct* rather than simply act on. */
     val corrected: Int,
     val disabled: Boolean,
@@ -95,7 +103,6 @@ class ReminderEngine @Inject constructor(
     private val heartbeat: ReminderHeartbeat,
     private val registry: ReminderAlarmRegistry,
     private val notifier: DoseNotifier,
-    private val usageMonitor: UsageMonitor,
     private val audit: ReminderAudit,
 ) {
 
@@ -116,8 +123,15 @@ class ReminderEngine @Inject constructor(
 
     /**
      * Runs the full self-healing pass. Idempotent, and safe to call from anywhere at any time.
+     *
+     * @param claimedDoseId the dose the fired alarm named, when [trigger] is an alarm. It is the one
+     *        piece of the intent the pipeline trusts, and only for the "never early" rule - see
+     *        [ReminderContext.claims].
      */
-    suspend fun reconcile(trigger: ReminderTrigger): ReminderReport = gate.withLock {
+    suspend fun reconcile(
+        trigger: ReminderTrigger,
+        claimedDoseId: Long? = null,
+    ): ReminderReport = gate.withLock {
         val now = System.currentTimeMillis()
         val prefs = prefsOr()
         val today = DateTimeUtils.todayEpochDay()
@@ -134,6 +148,7 @@ class ReminderEngine @Inject constructor(
                 armedDoses = 0,
                 suppressed = 0,
                 deferred = 0,
+                unlocked = 0,
                 corrected = 0,
                 disabled = true,
                 nextSelfCheckAt = 0L,
@@ -172,11 +187,16 @@ class ReminderEngine @Inject constructor(
             localMinuteOfDay = localMinuteOfDay(now),
             quietHoursEndMillis = quietEnd,
             trigger = trigger,
+            // Only "the user came back" carries the catch-up; every other trigger keeps the strict
+            // "never repeat what you already said" behaviour it had.
+            unlockCatchUp = trigger == ReminderTrigger.USER_RETURN,
+            claimedDoseId = claimedDoseId,
         )
 
-        val candidates = collectCandidates(now, prefs, today)
+        val candidates = collectCandidates(now, prefs, today, trigger)
         val dueAnnouncements = mutableListOf<Triple<DoseLog, Medication?, Long>>()
         val headsUpAnnouncements = mutableListOf<Triple<DoseLog, Medication?, Long>>()
+        val unlockAnnouncements = mutableListOf<Triple<DoseLog, Medication?, Long>>()
         val armedIds = mutableSetOf<Long>()
         val armedExpectations = mutableMapOf<Long, Long>()
         var suppressedCount = 0
@@ -204,12 +224,7 @@ class ReminderEngine @Inject constructor(
                 )
             }
 
-            var decision = ReminderPlanner.decide(dose, prefs, reminderContext)
-
-            // Idle deferral depends on device state, which the pure planner must not touch.
-            if (isNoisyFirstAnnouncement(decision) && usageMonitor.shouldDefer(prefs, now)) {
-                decision = ReminderDecision.Deferred(Long.MAX_VALUE, DeferReason.IDLE)
-            }
+            val decision = ReminderPlanner.decide(dose, prefs, reminderContext)
 
             when (decision) {
                 is ReminderDecision.Suppressed -> {
@@ -227,8 +242,11 @@ class ReminderEngine @Inject constructor(
                 }
 
                 is ReminderDecision.Deferred -> {
+                    // Only quiet hours defer a reminder now, and a deferral is purely a schedule fact -
+                    // nothing is written to the row. Rows withheld by the retired idle feature are
+                    // still *read* (source (c) below) and released here, so upgrading cannot strand a
+                    // reminder that an older build had put aside.
                     deferredCount++
-                    if (decision.reason == DeferReason.IDLE) doseRepository.deferReminder(dose.id, now)
                     audit.record(dose.id, trigger, decision.code, detail = decision.reason.label)
                 }
 
@@ -281,6 +299,36 @@ class ReminderEngine @Inject constructor(
                     )
                 }
 
+                is ReminderDecision.UnlockCatchUp -> {
+                    val medication = medicationOf(dose)
+                    // Only an audible catch-up spends the budget. A quiet-hours note is still posted -
+                    // the dose is genuinely overdue - but it must not eat into the nudges the user is
+                    // saving for the hours when they are willing to be interrupted.
+                    doseRepository.recordUnlockReminder(
+                        dose.id,
+                        now,
+                        countsTowardBudget = !decision.quiet,
+                    )
+                    // Recorded as told, twice over: the ordinary pipeline must not immediately repeat
+                    // what the user has just been shown, and the silent 未服药 record would be a
+                    // redundant second notification about a dose that was already announced audibly.
+                    doseRepository.markNotified(dose.id, now)
+                    doseRepository.markMissedNotified(dose.id)
+                    unlockAnnouncements += Triple(dose, medication, due)
+                    audit.record(
+                        dose.id,
+                        trigger,
+                        decision.code,
+                        driftMillis = decision.lateMillis,
+                        detail = if (decision.quiet) {
+                            "免打扰时段，静默补提醒（第 " + decision.occurrence + " 次）"
+                        } else {
+                            "解锁补提醒（第 " + decision.occurrence + " 次）· " +
+                                ReminderTiming.latenessLabel(decision.lateMillis)
+                        },
+                    )
+                }
+
                 is ReminderDecision.Missed -> {
                     val medication = medicationOf(dose)
                     notifier.showMissedReminder(dose, medication, prefs)
@@ -299,7 +347,8 @@ class ReminderEngine @Inject constructor(
             if (decision is ReminderDecision.Remind ||
                 decision is ReminderDecision.CatchUp ||
                 decision is ReminderDecision.Missed ||
-                decision is ReminderDecision.PreRemind
+                decision is ReminderDecision.PreRemind ||
+                decision is ReminderDecision.UnlockCatchUp
             ) {
                 doseRepository.clearDeferredReminders(listOf(dose.id))
             }
@@ -323,6 +372,7 @@ class ReminderEngine @Inject constructor(
 
         registry.replaceArmed(armedIds, armedExpectations)
         publishDigest(dueAnnouncements, headsUpAnnouncements, prefs)
+        publishUnlockCatchUp(unlockAnnouncements, prefs, reminderContext)
         // 4. Re-arm both rolling alarms. Doing this at the *end* of every pass is what makes the
         //    chain self-healing: whichever path got here, the next heartbeat is now guaranteed.
         val nextSelfCheck = heartbeat.armSelfCheck(
@@ -338,7 +388,9 @@ class ReminderEngine @Inject constructor(
 
         // Anything owed to a user who is holding the phone right now is delivered above; if the
         // state changed at all, the widget should say so too.
-        if (dueAnnouncements.isNotEmpty() || headsUpAnnouncements.isNotEmpty() || repaired > 0 || materialised > 0) {
+        if (dueAnnouncements.isNotEmpty() || headsUpAnnouncements.isNotEmpty() ||
+            unlockAnnouncements.isNotEmpty() || repaired > 0 || materialised > 0
+        ) {
             runCatching { doseRepository.notifyWidgetRefresh() }
         }
 
@@ -348,6 +400,7 @@ class ReminderEngine @Inject constructor(
             armedDoses = armedIds.size,
             suppressed = suppressedCount,
             deferred = deferredCount,
+            unlocked = unlockAnnouncements.size,
             corrected = correctedCount,
             disabled = false,
             nextSelfCheckAt = nextSelfCheck,
@@ -357,11 +410,18 @@ class ReminderEngine @Inject constructor(
         )
         registry.recordReconcile(report)
 
-        // Keep the guard service alive from inside the pipeline. Any path that gets this far proves
-        // the process is running, and if the guard was killed along with the rest of the app this is
-        // the cheapest possible moment to ask for it back. Failures are expected and ignored: from
-        // Android 12 a background app is not always allowed to start a foreground service.
-        if (prefs.guardServiceEnabled) {
+        // Keep the guard service alive from inside the pipeline - but only when there is a reason to
+        // ask. Any path that gets this far proves the process is running, so if the guard was killed
+        // along with the rest of the app this is the cheapest possible moment to ask for it back.
+        //
+        // The staleness check is load-bearing, not an optimisation: asking unconditionally turns
+        // reconcile -> ensureRunning -> onStartCommand -> reconcile into an unbounded loop, because
+        // startForegroundService on a running service just delivers another onStartCommand. See
+        // [GuardLiveness] for what that measured on a real device.
+        //
+        // Failures are still expected and ignored: from Android 12 a background app is not always
+        // allowed to start a foreground service.
+        if (prefs.guardServiceEnabled && registry.guardIsStale(now)) {
             ReminderGuardService.ensureRunning(appContext)
         }
 
@@ -369,16 +429,21 @@ class ReminderEngine @Inject constructor(
             TAG,
             "reconcile(${trigger.name}): delivered=${report.delivered} armed=${report.armedDoses} " +
                 "suppressed=${report.suppressed} deferred=${report.deferred} " +
+                "unlocked=${report.unlocked} " +
                 "corrected=${report.corrected} lost=${report.lostAlarms}",
         )
         report
     }
 
-    /** Called when the user picks the phone up: releases anything held for idleness. */
-    suspend fun onUserReturn(): ReminderReport {
-        usageMonitor.recordInteraction()
-        return reconcile(ReminderTrigger.USER_RETURN)
-    }
+    /**
+     * Called when the user picks the phone up - an unlock, a wake onto an already-unlocked phone, or
+     * the app being brought back to the foreground.
+     *
+     * One pass, and that is the whole feature: because the pass is idempotent and every decision is
+     * derived from the database, "speak up about what they missed" needs no queue and no memory of
+     * what was withheld. The unlock-specific rule lives in [ReminderPlanner.unlockCatchUpEligible].
+     */
+    suspend fun onUserReturn(): ReminderReport = reconcile(ReminderTrigger.USER_RETURN)
 
     /**
      * Called after an action on a notification so the schedule matches the new state.
@@ -397,7 +462,7 @@ class ReminderEngine @Inject constructor(
     /**
      * Every dose worth reasoning about right now.
      *
-     * Four sources, merged by id. The union is deliberate: "what is due soon" is not enough, because
+     * Five sources, merged by id. The union is deliberate: "what is due soon" is not enough, because
      * the failure this rewrite exists to fix is precisely the dose that fell due while nothing was
      * running and therefore never entered anyone's "due soon" list.
      */
@@ -405,6 +470,7 @@ class ReminderEngine @Inject constructor(
         now: Long,
         prefs: UserPreferences,
         today: Long,
+        trigger: ReminderTrigger,
     ): List<DoseLog> {
         val merged = LinkedHashMap<Long, DoseLog>()
 
@@ -435,6 +501,19 @@ class ReminderEngine @Inject constructor(
             .getOrDefault(emptyList())
             .filter { it.status == DoseStatus.MISSED && !it.missedNotified }
             .forEach { merged[it.id] = it }
+
+        // (e) Only when the user is back: everything overdue, still unrecorded, and inside their own
+        //     "太晚了" window. This is the one source that is allowed to look at doses the pipeline has
+        //     already written off - a dose derived as 未服药 while the phone was dark is precisely the
+        //     one that has to be allowed to speak up now. The window bound is the user's own setting,
+        //     so the catch-up can never nag about something that happened yesterday.
+        if (trigger == ReminderTrigger.USER_RETURN) {
+            val unlockFloor = now - prefs.staleReminderMinutes.coerceAtLeast(1) * 60_000L
+            runCatching { doseRepository.getUnlockCatchUpCandidates(now, unlockFloor) }
+                .onFailure { Log.w(TAG, "unlock catch-up query failed", it) }
+                .getOrDefault(emptyList())
+                .forEach { merged[it.id] = it }
+        }
 
         return merged.values.sortedBy { ReminderPlanner.effectiveDueMillis(it) }
     }
@@ -471,6 +550,14 @@ class ReminderEngine @Inject constructor(
 
         val doseAt: Long? = when (decision) {
             is ReminderDecision.TooEarly -> decision.dueAtMillis
+            // A catch-up is an announcement, not a reschedule: the dose is already in the past, so
+            // there is no instant to arm it for. The ordinary repeat chain is kept alive, though,
+            // because that is still the only thing that can speak up again without a fresh unlock.
+            is ReminderDecision.UnlockCatchUp -> {
+                val nextEscalation = dose.escalationCount + 1
+                val budgetLeft = nextEscalation < prefs.maxEscalationsPerDose.coerceAtLeast(1)
+                if (prefs.repeatReminderMinutes > 0 && budgetLeft) now + repeatMillis else null
+            }
             is ReminderDecision.Deferred ->
                 decision.untilMillis.takeIf { it != Long.MAX_VALUE }?.coerceAtLeast(now + 1_000L)
             // The heads-up just went out; the reminder itself is what comes next.
@@ -532,6 +619,30 @@ class ReminderEngine @Inject constructor(
     }
 
     /**
+     * Posts the "你还有 N 项没吃" nudge for everything the unlock path decided to re-announce.
+     *
+     * One notification for the whole batch, deliberately: the user has just looked at their phone, and
+     * the honest summary of that moment is "三个药你都没吃", not three separate buzzes competing for
+     * the same second. The individual doses still exist as group children with their own
+     * 已服 / 稍后 / 跳过 buttons, so nothing is lost by collapsing the summary - only the noise is.
+     *
+     * A single dose skips the summary entirely and is posted as an ordinary reminder, because a
+     * summary of one is just an extra tap.
+     */
+    private suspend fun publishUnlockCatchUp(
+        announcements: List<Triple<DoseLog, Medication?, Long>>,
+        prefs: UserPreferences,
+        context: ReminderContext,
+    ) {
+        if (announcements.isEmpty()) return
+        notifier.showUnlockCatchUp(
+            items = announcements.map { it.first to it.second },
+            prefs = prefs,
+            quiet = context.quietHoursEndMillis > 0L,
+        )
+    }
+
+    /**
      * Materialises the dose rows this pass needs.
      *
      * The horizon is trimmed for the high-frequency heartbeat: there is no reason to rebuild three
@@ -558,13 +669,6 @@ class ReminderEngine @Inject constructor(
 
     private suspend fun prefsOr(): UserPreferences =
         runCatching { settingsRepository.current() }.getOrDefault(UserPreferences())
-
-    /** True for the decisions that would interrupt the user, which is what idle deferral holds back. */
-    private fun isNoisyFirstAnnouncement(decision: ReminderDecision): Boolean = when (decision) {
-        is ReminderDecision.PreRemind -> true
-        is ReminderDecision.Remind -> decision.escalation == 0 && !decision.quiet
-        else -> false
-    }
 
     private fun localMinuteOfDay(now: Long): Int {
         val time = Instant.ofEpochMilli(now).atZone(DateTimeUtils.zone()).toLocalTime()

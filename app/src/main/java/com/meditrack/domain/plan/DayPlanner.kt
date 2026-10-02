@@ -98,6 +98,45 @@ object DayPlanner {
     }
 
     /**
+     * The status to **show** for a stored dose row, which may be ahead of what is stored.
+     *
+     * ## Why the stored status is not enough
+     *
+     * A dose row is created before its time - by the reminder pass materialising several days of
+     * schedule, or by the today screen opening in the morning - and it is written with the status the
+     * clock implied *at that moment*: `UPCOMING`. Nothing goes back and rewrites it when the clock
+     * catches up, because the only thing that does so is the missed sweep, and that runs a whole
+     * grace period later.
+     *
+     * The result was visible on a real device: at 22:54, a dose due at 22:49 - for which a reminder
+     * had already been posted - still read 「未到时间」 on the today screen, next to the very same
+     * card's "已过 5 分钟". The overdue red 未服药 state, which `DoseView.isOverdue` exists to
+     * produce, could never appear in that window either, because it requires `DUE`.
+     *
+     * So `UPCOMING` is treated as "not yet decided" and re-derived from the clock. Every other value
+     * is a statement about what the *user* did, and the clock is never allowed to overrule it.
+     */
+    fun displayStatus(
+        stored: DoseStatus?,
+        plannedTimeMillis: Long,
+        takenQuantity: Double,
+        plannedQuantity: Double,
+        isSkipped: Boolean = false,
+        snoozedUntilMillis: Long? = null,
+        nowMillis: Long = System.currentTimeMillis(),
+    ): DoseStatus {
+        val clock = deriveStatus(
+            plannedTimeMillis = plannedTimeMillis,
+            takenQuantity = takenQuantity,
+            plannedQuantity = plannedQuantity,
+            isSkipped = isSkipped,
+            snoozedUntilMillis = snoozedUntilMillis,
+            nowMillis = nowMillis,
+        )
+        return if (stored == null || stored == DoseStatus.UPCOMING) clock else stored
+    }
+
+    /**
      * Milliseconds at which a dose stops being "待服用" and is recorded as "未服药".
      *
      * @param plannedTimeMillis the scheduled instant

@@ -186,29 +186,64 @@ data class UserPreferences(
      */
     val guardServiceEnabled: Boolean = true,
 
-    // ------------------------------------------------ idle deferral (opt-in)
+    // ------------------------------------- unlock catch-up («解锁补提醒»)
 
     /**
-     * Hold reminders back while the phone is sitting unused, and deliver them the moment the user
-     * picks it up again.
+     * Speak up about an overdue, still-unrecorded dose the moment the user picks the phone up.
      *
-     * **Off by default, deliberately.** It changes when notifications arrive and relies on reading
-     * device state, so it is an explicit choice rather than something imposed. With it off, every
-     * reminder fires at its scheduled time exactly as before, and no device state is inspected.
+     * **On by default**, and it is the answer to the one failure a scheduled alarm cannot cover: the
+     * reminder fired while the phone sat locked in a pocket, nobody saw it, and by the time the user
+     * looked the dose had already passed its grace period - where the pipeline, quite correctly,
+     * stops making noise and only files a silent 未服药 record. Turning "我没看见" into a second
+     * chance is worth defaulting on, because the alternative is a missed dose nobody was told about.
+     *
+     * The check runs on unlock and whenever the app is brought back to the foreground. It does not
+     * read the phone's usage history: it only reacts to the two moments the user is provably present.
      */
+    val unlockReminderEnabled: Boolean = true,
+    /**
+     * How many audible unlock catch-ups one dose may produce during its day.
+     *
+     * Counted from the first unlock catch-up, not from the scheduled time, so a dose the user sees on
+     * the lock screen still has its whole allowance left when they finally pick the phone up. A dose
+     * row is one day, so the budget resets every day by construction.
+     */
+    val unlockReminderMaxPerDose: Int = 3,
+    /**
+     * Minimum spacing between two unlock catch-ups for the same dose.
+     *
+     * Unlocking a phone is not a rare event - it happens dozens of times a day - so without a floor
+     * the whole budget would be gone before breakfast. Five minutes lets a genuinely unattended phone
+     * produce a handful of real nudges instead of a buzz every time the screen lights up.
+     */
+    val unlockReminderMinGapMinutes: Int = 5,
+    /**
+     * Take over the screen, like a system alarm, when a reminder or a catch-up fires.
+     *
+     * **Off by default.** Android 14+ grants this only to genuine alarm-clock apps, so it has to be
+     * allowed explicitly in the system settings - and a reminder that seizes the whole screen is a
+     * strong thing to impose. The heads-up banner plus vibration is the default experience.
+     */
+    val fullScreenReminderEnabled: Boolean = false,
+
+    // ------------------------ legacy idle deferral (retired, kept for backup round-trips)
+
+    /**
+     * Retired: idle deferral was replaced by the unlock catch-up above.
+     *
+     * The old feature held a reminder back while nobody was looking and released it later, which
+     * meant the dose frequently crossed its grace period *while withheld* - so the release arrived as
+     * a silent 未服药 note instead of a reminder. That is precisely the "提醒被抵掉" failure it was
+     * meant to prevent, which is why the behaviour is gone rather than merely switched off.
+     *
+     * The fields remain so an existing installation, and an old JSON backup, still read back
+     * losslessly; nothing consults them any more.
+     */
+    @Deprecated("Idle deferral was replaced by the unlock catch-up; kept for backup compatibility.")
     val idleDeferralEnabled: Boolean = false,
-    /**
-     * How long the phone must go without user interaction before reminders are held back.
-     *
-     * Only meaningful when [idleDeferralEnabled] is on.
-     */
+    @Deprecated("Idle deferral was replaced by the unlock catch-up; kept for backup compatibility.")
     val idleThresholdMinutes: Int = 30,
-    /**
-     * Also hold a reminder back while the screen is simply off, regardless of [idleThresholdMinutes].
-     *
-     * On by default for users who enable the feature: a locked phone in a pocket is the clearest
-     * case of "nobody will see this now".
-     */
+    @Deprecated("Idle deferral was replaced by the unlock catch-up; kept for backup compatibility.")
     val deferWhileScreenOff: Boolean = true,
 
     // --------------------------------------------------------------- widget
@@ -251,25 +286,6 @@ data class UserPreferences(
         } else {
             minuteOfDay >= start || minuteOfDay < end
         }
-    }
-
-    /**
-     * True when a reminder should be withheld rather than posted.
-     *
-     * @param screenInteractive current value of [android.os.PowerManager.isInteractive]
-     * @param lastInteractionMillis last recorded user interaction, or null if never recorded
-     * @param nowMillis injected clock, so the rule is unit testable
-     */
-    fun shouldDeferReminder(
-        screenInteractive: Boolean,
-        lastInteractionMillis: Long?,
-        nowMillis: Long = System.currentTimeMillis(),
-    ): Boolean {
-        if (!idleDeferralEnabled) return false
-        if (!screenInteractive && deferWhileScreenOff) return true
-        val last = lastInteractionMillis ?: return false
-        val idleMillis = nowMillis - last
-        return idleMillis >= idleThresholdMinutes.coerceAtLeast(1) * 60_000L
     }
 
     /** Radius used by every rounded card, scaled up in simplified/high-contrast mode. */

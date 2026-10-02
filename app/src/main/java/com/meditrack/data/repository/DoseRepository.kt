@@ -595,6 +595,29 @@ class DoseRepository @Inject constructor(
     suspend fun getArmableBetween(fromMillis: Long, toMillis: Long): List<DoseLog> =
         doseLogDao.getArmableBetween(fromMillis, toMillis)
 
+    /**
+     * Overdue, still-unrecorded doses that an unlock catch-up may announce.
+     *
+     * See [DoseLogDao.getUnlockCatchUpCandidates] for why `MISSED` is included and how an active
+     * snooze keeps a dose out of the result.
+     */
+    suspend fun getUnlockCatchUpCandidates(nowMillis: Long, notBeforeMillis: Long): List<DoseLog> =
+        doseLogDao.getUnlockCatchUpCandidates(nowMillis, notBeforeMillis)
+
+    /**
+     * Records that an unlock catch-up was posted for this dose.
+     *
+     * @param countsTowardBudget false for the quiet-hours note, which must not spend the audible
+     *        budget the user is saving for the rest of the day
+     */
+    suspend fun recordUnlockReminder(doseId: Long, at: Long, countsTowardBudget: Boolean) {
+        if (countsTowardBudget) {
+            doseLogDao.markUnlockReminded(doseId, at)
+        } else {
+            doseLogDao.touchUnlockReminder(doseId, at)
+        }
+    }
+
     // ------------------------------------------------------ reminder arming
 
     /**

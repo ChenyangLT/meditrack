@@ -24,13 +24,13 @@ object MediTrackTestTags {
     const val EDITOR_LIST = "editor_list"
 
     /**
-     * The "启用该功能" switch for the opt-in usage monitoring.
+     * The "解锁时补提醒没吃的药" switch.
      *
      * Tagged because the switch is a *sibling* of its label Text inside the row, not a descendant -
      * so `hasText(...) and isToggleable()` matches nothing, and there is no reliable way to reach
      * the control from the label alone.
      */
-    const val IDLE_DEFERRAL_SWITCH = "idle_deferral_switch"
+    const val UNLOCK_REMINDER_SWITCH = "unlock_reminder_switch"
 
     /** The bottom-bar tab labels, for navigation in tests. */
     const val TAB_TODAY = "tab_today"

@@ -98,6 +98,8 @@ interface DoseLogDao {
                notifiedTimeMillis = NULL,
                escalationCount = 0,
                preRemindedAtMillis = NULL,
+               unlockReminderCount = 0,
+               unlockReminderAtMillis = NULL,
                updatedAt = :now
          WHERE id = :id
         """
@@ -143,6 +145,8 @@ interface DoseLogDao {
                escalationCount = 0,
                preRemindedAtMillis = NULL,
                missedNotified = 0,
+               unlockReminderCount = 0,
+               unlockReminderAtMillis = NULL,
                updatedAt = :now
          WHERE id = :id
         """
@@ -333,17 +337,77 @@ interface DoseLogDao {
      * This is the query that makes a late wake-up harmless: after a reboot, a Doze exit or a long
      * power-off, everything that came due while nothing was running is found here in one statement
      * and reconciled, rather than being lost because its one alarm fired into the void.
+     *
+     * `MISSED` is included, and that inclusion is load-bearing: the same reconcile pass derives the
+     * missed status *before* it collects candidates, so excluding it here would make a dose that
+     * lapsed a moment earlier invisible to the very pass that is supposed to announce it. (It used to
+     * be reachable only through a separate "missed today, not yet announced" query, which by
+     * construction cannot see yesterday's rows or a dose that was derived missed on a previous pass.)
      */
     @Query(
         """
         SELECT * FROM dose_logs
-         WHERE status IN ('UPCOMING', 'DUE', 'PARTIAL')
+         WHERE status IN ('UPCOMING', 'DUE', 'PARTIAL', 'MISSED')
            AND MAX(COALESCE(snoozedUntilMillis, plannedTimeMillis), plannedTimeMillis) <= :nowMillis
            AND MAX(COALESCE(snoozedUntilMillis, plannedTimeMillis), plannedTimeMillis) >= :notBeforeMillis
          ORDER BY plannedTimeMillis ASC
         """
     )
     suspend fun getOverdueOpen(nowMillis: Long, notBeforeMillis: Long): List<DoseLog>
+
+    /**
+     * Doses an **unlock catch-up** may speak up about.
+     *
+     * The rule is "the user just picked the phone up, and this dose is overdue and still not
+     * recorded". Deliberately broader than [getOverdueOpen]:
+     *
+     *  - `MISSED` counts. "The app already decided this was a miss" is exactly the situation that
+     *    needs a voice, because the miss was decided while nobody was looking at the screen.
+     *  - `notBeforeMillis` is the user's own "太晚了" boundary; beyond it the moment has gone and a
+     *    notification would be a lie, so the caller stops there.
+     *  - A snooze that is still in the future is excluded through the effective-due expression: the
+     *    user explicitly asked to be left alone until then.
+     *  - `TAKEN` / `SKIPPED` never appear: the user already resolved them.
+     */
+    @Query(
+        """
+        SELECT * FROM dose_logs
+         WHERE status IN ('UPCOMING', 'DUE', 'PARTIAL', 'MISSED')
+           AND MAX(COALESCE(snoozedUntilMillis, plannedTimeMillis), plannedTimeMillis) <= :nowMillis
+           AND MAX(COALESCE(snoozedUntilMillis, plannedTimeMillis), plannedTimeMillis) >= :notBeforeMillis
+         ORDER BY plannedTimeMillis ASC
+        """
+    )
+    suspend fun getUnlockCatchUpCandidates(nowMillis: Long, notBeforeMillis: Long): List<DoseLog>
+
+    /**
+     * Spends one unlock catch-up from the dose's budget.
+     *
+     * Separate from [markNotified] on purpose: the ordinary escalation counter and the unlock counter
+     * answer two different questions ("has the schedule spoken up?" vs "has the *person* been told
+     * since they picked the phone up?"), and sharing one counter is what made the old behaviour
+     * silence one of them.
+     */
+    @Query(
+        """
+        UPDATE dose_logs
+           SET unlockReminderCount = unlockReminderCount + 1,
+               unlockReminderAtMillis = :at,
+               updatedAt = :now
+         WHERE id = :id
+        """
+    )
+    suspend fun markUnlockReminded(id: Long, at: Long, now: Long = System.currentTimeMillis())
+
+    /**
+     * Records an unlock catch-up that does **not** spend the budget.
+     *
+     * Used inside quiet hours, where the user asked for a note rather than a buzz: the timestamp
+     * still moves so the minimum-gap rule keeps repeated unlocks from re-posting, but the limited
+     * audible budget is preserved for the hours when the user is willing to be interrupted.
+     */
+    @Query("UPDATE dose_logs SET unlockReminderAtMillis = :at, updatedAt = :now WHERE id = :id")
+    suspend fun touchUnlockReminder(id: Long, at: Long, now: Long = System.currentTimeMillis())
 
     /**
      * Sweeps the missed flag for doses that have already been told to the user.

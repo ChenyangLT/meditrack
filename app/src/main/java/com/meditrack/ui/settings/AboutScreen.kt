@@ -226,6 +226,9 @@ private fun BulletLine(text: String) {
             text = text,
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurface,
+            // Explicitly claim the remaining width so the bullet text wraps rather than running
+            // into the edge of the card.
+            modifier = Modifier.weight(1f),
         )
     }
 }

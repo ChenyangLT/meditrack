@@ -94,13 +94,19 @@ data class DoseView(
             use24Hour: Boolean = true,
         ): DoseView {
             val taken = stored?.takenQuantity ?: 0.0
-            val status = stored?.status ?: DayPlanner.deriveStatus(
+            val snoozedUntil = stored?.snoozedUntilMillis
+            // Not `stored.status`: a row materialised before its time still says UPCOMING, and
+            // trusting it made an already-reminded, overdue dose render as 「未到时间」. See
+            // [DayPlanner.displayStatus].
+            val status = DayPlanner.displayStatus(
+                stored = stored?.status,
                 plannedTimeMillis = planned.plannedTimeMillis,
-                takenQuantity = 0.0,
+                takenQuantity = taken,
                 plannedQuantity = planned.plannedQuantity,
+                isSkipped = stored?.status == DoseStatus.SKIPPED,
+                snoozedUntilMillis = snoozedUntil,
                 nowMillis = nowMillis,
             )
-            val snoozedUntil = stored?.snoozedUntilMillis
             return DoseView(
                 doseId = stored?.id ?: 0L,
                 medicationId = planned.medicationId,
@@ -140,6 +146,18 @@ data class DoseView(
          * One short line under the medication name. Kept here (rather than in the composable) so
          * the today list, the detail sheet and the widget all phrase the same state identically.
          */
+        /**
+         * One short line under the medication name.
+         *
+         * ## It says only what the chip does not
+         *
+         * An earlier version prefixed the state - "已完成 · 已过 149 分钟", "未服药 · 已过 149 分钟" -
+         * which the status chip two lines below already states, in a colour and with an icon. The
+         * repetition cost the line its width: at the largest text scale the phrase no longer fitted,
+         * and the only place it *could* break was inside the unit word, producing "已过 149 分" /
+         * "钟". Dropping the prefix leaves the fact the user actually came for - how long ago - and
+         * fits on one line at every scale the app offers.
+         */
         private fun hintFor(
             plannedTimeMillis: Long,
             plannedQuantity: Double,
@@ -149,16 +167,17 @@ data class DoseView(
             snoozedUntilMillis: Long?,
             nowMillis: Long,
         ): String = when {
-            status == DoseStatus.TAKEN -> "已完成 · " + DateTimeUtils.relativeLabel(plannedTimeMillis, nowMillis)
             status == DoseStatus.SKIPPED -> "已跳过"
-            status == DoseStatus.MISSED -> "未服药 · " + DateTimeUtils.relativeLabel(plannedTimeMillis, nowMillis)
             snoozedUntilMillis != null && nowMillis < snoozedUntilMillis ->
                 "已推迟到 " + DateTimeUtils.formatDateTime(snoozedUntilMillis).takeLast(5)
             status == DoseStatus.PARTIAL -> {
                 val remaining = (plannedQuantity - takenQuantity).coerceAtLeast(0.0)
+                // Non-breaking again: "还差 1 片" must not become "还差 1" / "片".
                 "还差 " + QuantityFormatter.format(remaining, unitLabel)
+                    .replace(" ", DateTimeUtils.NBSP)
             }
-            status == DoseStatus.DUE -> "已到时间 · " + DateTimeUtils.relativeLabel(plannedTimeMillis, nowMillis)
+            // Taken, missed, due and not-yet-due all want the same sentence: how far the scheduled
+            // time is from now. The chip supplies the state.
             else -> DateTimeUtils.relativeLabel(plannedTimeMillis, nowMillis)
         }
     }

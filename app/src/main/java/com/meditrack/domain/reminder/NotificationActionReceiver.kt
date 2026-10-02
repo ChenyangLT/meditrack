@@ -78,6 +78,7 @@ class NotificationActionReceiver : BroadcastReceiver() {
         }
         notifier.cancel(doseId)
         engine.onDoseStateChanged(doseId)
+        dismissUnlockSummaryIfSettled()
         notifier.showActionConfirmation(context.getString(R.string.toast_marked_taken))
     }
 
@@ -108,7 +109,27 @@ class NotificationActionReceiver : BroadcastReceiver() {
         doseRepository.skip(doseId)
         notifier.cancel(doseId)
         engine.onDoseStateChanged(doseId)
+        dismissUnlockSummaryIfSettled()
         notifier.showActionConfirmation(context.getString(R.string.toast_skipped))
+    }
+
+    /**
+     * Removes the "你还有 N 项没吃" summary once nothing it was counting is outstanding any more.
+     *
+     * The summary is a count, so leaving it in the shade after the last dose has been dealt with would
+     * make the app lie about the user's own record - the one thing a medication log must never do.
+     * It is only cancelled when *nothing* overdue and unrecorded is left, so dealing with one of three
+     * doses correctly keeps the other two visible.
+     */
+    private suspend fun dismissUnlockSummaryIfSettled() {
+        runCatching {
+            val now = System.currentTimeMillis()
+            val prefs = settingsRepository.current()
+            val floor = now - prefs.staleReminderMinutes.coerceAtLeast(1) * 60_000L
+            if (doseRepository.getUnlockCatchUpCandidates(now, floor).isEmpty()) {
+                notifier.cancelUnlockCatchUp()
+            }
+        }
     }
 
     companion object {

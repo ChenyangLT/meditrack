@@ -80,7 +80,10 @@ data class ReminderEvent(
             decisionCode == "REMIND_REPEAT" ||
             decisionCode == "PRE_REMIND" ||
             decisionCode == "CATCH_UP" ||
-            decisionCode == "MISSED"
+            decisionCode == "MISSED" ||
+            // The unlock catch-up is a real notification the user is looking at right now, so it
+            // belongs on the delivered side - that is the whole reason it exists.
+            decisionCode == "UNLOCK_CATCH_UP"
 
     /** True when the pipeline ran and deliberately chose to stay silent. */
     val suppressed: Boolean get() = decisionCode.startsWith("SKIP_")

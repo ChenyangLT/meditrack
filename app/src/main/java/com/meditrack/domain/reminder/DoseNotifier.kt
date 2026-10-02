@@ -189,6 +189,10 @@ class DoseNotifier @Inject constructor(
             setGroup(GROUP_REMINDERS)
             enableVibration(false)
             setShowBadge(true)
+            // Readable on the lock screen without unlocking. A 未服药 record is exactly the kind of
+            // thing a person glancing at their phone needs to see, and the content is their own
+            // prescription rather than anything secret.
+            lockscreenVisibility = Notification.VISIBILITY_PUBLIC
         }
 
         val status = NotificationChannel(
@@ -356,6 +360,118 @@ class DoseNotifier @Inject constructor(
             actions = listOf(Action.TAKEN, Action.SKIP),
             priority = NotificationCompat.PRIORITY_DEFAULT,
         )
+    }
+
+    /**
+     * "你还有 N 项没吃" - the catch-up posted the moment the user picks the phone up.
+     *
+     * ## Why this is a separate notification from every other reminder
+     *
+     * The ordinary reminder describes a moment: "08:00 到了，该吃药了". This one describes a *state the
+     * user is already in*: the moment has passed, the dose is still unrecorded, and the app is using
+     * the one piece of evidence it will ever have that a human is finally looking at the screen. The
+     * phrasing therefore stays in the present tense ("还没吃") and never implies the reminder failed.
+     *
+     * ## One buzz for the whole batch
+     *
+     * Three overdue doses are one event in a person's morning, so the batch becomes a single summary
+     * that alerts, with each dose still present as a silent group child carrying its own
+     * 已服 / 稍后 / 跳过 buttons. The children are posted first and deliberately kept quiet:
+     * `GROUP_ALERT_SUMMARY` means only the summary is allowed to vibrate, so N doses produce one
+     * interruption instead of N competing for the same second.
+     *
+     * @param quiet the phone was picked up inside the user's quiet hours, so the note is posted
+     *        silently. It is still worth posting - the dose is genuinely overdue - it just must not
+     *        make a noise at 3am.
+     */
+    fun showUnlockCatchUp(
+        items: List<Pair<DoseLog, Medication?>>,
+        prefs: UserPreferences,
+        quiet: Boolean,
+    ) {
+        if (items.isEmpty()) return
+        if (!manager.areNotificationsEnabled()) {
+            Log.w(TAG, "not posting the unlock catch-up: notifications are disabled for the app")
+            return
+        }
+
+        // A single dose needs no summary: a summary of one is just an extra tap.
+        if (items.size == 1) {
+            val (dose, medication) = items.first()
+            val name = medication?.name ?: context.getString(R.string.unknown_medication)
+            notify(
+                dose = dose,
+                channel = null,
+                title = context.getString(R.string.notification_title_unlock_single, name),
+                body = context.getString(
+                    R.string.notification_body_unlock_single,
+                    ReminderTiming.approximateLabel(dose.plannedMinuteOfDay),
+                ),
+                detail = buildDoseDetail(dose, medication, prefs) +
+                    "\n" + context.getString(R.string.notification_line_unlock_how),
+                prefs = prefs,
+                silent = quiet,
+                actions = listOf(Action.TAKEN, Action.SNOOZE, Action.SKIP),
+            )
+            return
+        }
+
+        val lines = items.joinToString("\n") { (dose, medication) ->
+            context.getString(
+                R.string.notification_line_unlock_item,
+                ReminderTiming.approximateLabel(dose.plannedMinuteOfDay),
+                medication?.name ?: context.getString(R.string.unknown_medication),
+                QuantityFormatter.format(dose.plannedQuantity, dose.plannedUnit),
+            )
+        }
+        val how = context.getString(R.string.notification_line_unlock_how)
+        val title = context.getString(R.string.notification_title_unlock_summary, items.size)
+        val channel = channelFor(prefs, quiet)
+
+        // Children first, summary last: that is the order the platform expects, and it is what makes
+        // the summary the notification that alerts while the children stay silent.
+        items.forEach { (dose, medication) ->
+            notify(
+                dose = dose,
+                channel = CHANNEL_REMINDER_SILENT,
+                title = context.getString(
+                    R.string.notification_title_unlock_single,
+                    medication?.name ?: context.getString(R.string.unknown_medication),
+                ),
+                body = context.getString(
+                    R.string.notification_body_unlock_single,
+                    ReminderTiming.approximateLabel(dose.plannedMinuteOfDay),
+                ),
+                detail = buildDoseDetail(dose, medication, prefs),
+                prefs = prefs,
+                silent = true,
+                actions = listOf(Action.TAKEN, Action.SNOOZE, Action.SKIP),
+                priority = NotificationCompat.PRIORITY_LOW,
+                groupAlert = NotificationCompat.GROUP_ALERT_SUMMARY,
+            )
+        }
+
+        val summary = NotificationCompat.Builder(context, channel)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setContentTitle(title)
+            .setContentText(lines.lineSequence().first())
+            .setStyle(NotificationCompat.BigTextStyle().bigText(lines + "\n" + how))
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setCategory(NotificationCompat.CATEGORY_REMINDER)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .setGroup(GROUP_REMINDERS)
+            .setGroupSummary(true)
+            .setGroupAlertBehavior(NotificationCompat.GROUP_ALERT_SUMMARY)
+            .setContentIntent(summaryContentIntent())
+            .setAutoCancel(true)
+            .setShowWhen(true)
+            .applySoundAndVibration(prefs, quiet)
+
+        if (!quiet) summary.applyFullScreen(prefs, items.first().first)
+
+        runCatching { manager.notify(UNLOCK_SUMMARY_ID, summary.build()) }
+            .onSuccess { Log.i(TAG, "posted unlock catch-up summary for " + items.size + " doses") }
+            .onFailure { Log.e(TAG, "unlock catch-up summary notify() failed", it) }
     }
 
     /**
@@ -530,6 +646,14 @@ class DoseNotifier @Inject constructor(
         silent: Boolean,
         actions: List<Action>,
         priority: Int = NotificationCompat.PRIORITY_HIGH,
+        /**
+         * Which member of the group is allowed to alert.
+         *
+         * Only the unlock summary needs this: it collapses N overdue doses into one buzz, and without
+         * `GROUP_ALERT_SUMMARY` on the children every child would buzz as well, turning "你还有 3 项
+         * 没吃" into three notifications competing for the same second.
+         */
+        groupAlert: Int? = null,
     ) {
         // Logged rather than silently returning: "the alarm fired and nothing appeared" is the single
         // hardest symptom to diagnose, and this guard plus a throwing notify() are its only causes.
@@ -560,6 +684,12 @@ class DoseNotifier @Inject constructor(
             .setShowWhen(true)
             .setWhen(dose.plannedTimeMillis)
             .applySoundAndVibration(prefs, effectiveSilent)
+
+        groupAlert?.let { builder.setGroupAlertBehavior(it) }
+
+        // Only an announcement the user is meant to notice may seize the screen. The advance notice,
+        // the quiet-hours note and the silent 补记 record all stay in the shade where they belong.
+        if (!effectiveSilent) builder.applyFullScreen(prefs, dose)
 
         for (action in actions) {
             builder.addAction(
@@ -644,6 +774,23 @@ class DoseNotifier @Inject constructor(
         return this
     }
 
+    /**
+     * Turns the notification into a full-screen, system-alarm-style interruption, when the user asked
+     * for it (设置 → 全屏提醒).
+     *
+     * Android 14+ grants `USE_FULL_SCREEN_INTENT` only to genuine alarm-clock apps; elsewhere the
+     * platform silently degrades this to an ordinary heads-up banner, which is the correct fallback -
+     * the reminder still arrives, it just does not take over the screen. The settings screen offers
+     * the system page that grants it, so the toggle is never a dead end.
+     */
+    private fun NotificationCompat.Builder.applyFullScreen(
+        prefs: UserPreferences,
+        dose: DoseLog,
+    ): NotificationCompat.Builder {
+        if (!prefs.fullScreenReminderEnabled) return this
+        return setFullScreenIntent(contentIntent(dose), true)
+    }
+
     private fun alarmAudioAttributes(): AudioAttributes = AudioAttributes.Builder()
         .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
         .setUsage(AudioAttributes.USAGE_ALARM)
@@ -718,6 +865,11 @@ class DoseNotifier @Inject constructor(
         )
     }
 
+    /** Cancels the unlock summary; used when the batch has been dealt with. */
+    fun cancelUnlockCatchUp() {
+        manager.cancel(UNLOCK_SUMMARY_ID)
+    }
+
     private fun summaryContentIntent(): PendingIntent {
         val intent = Intent(context, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
@@ -784,6 +936,14 @@ class DoseNotifier @Inject constructor(
         private const val FEEDBACK_ID = 999_999
         private const val DIGEST_ID = 999_998
         private const val SELF_TEST_ID = 999_997
+
+        /**
+         * The "你还有 N 项没吃" summary.
+         *
+         * One id for the whole batch on purpose: two unlocks in a row must *replace* the previous
+         * countdown of outstanding doses, not stack a second contradictory one next to it.
+         */
+        private const val UNLOCK_SUMMARY_ID = 999_995
 
         /** Long enough to be noticed and heard, short enough not to become clutter. */
         private const val SELF_TEST_TIMEOUT_MILLIS = 30_000L

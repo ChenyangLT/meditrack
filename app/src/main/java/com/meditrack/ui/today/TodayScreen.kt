@@ -8,6 +8,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -64,7 +65,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -78,6 +78,7 @@ import com.meditrack.data.local.entity.DoseStatus
 import com.meditrack.data.local.entity.MedicationIcon
 import com.meditrack.domain.plan.DoseView
 import com.meditrack.domain.plan.TodaySummary
+import com.meditrack.ui.components.AdaptiveButtonRow
 import com.meditrack.ui.components.DoseStatusChip
 import com.meditrack.ui.components.QuantityStepper
 import com.meditrack.ui.components.doseStatusVisuals
@@ -359,8 +360,6 @@ private fun TodayProgressHeader(summary: TodaySummary, doses: List<DoseView>) {
                         text = "下一次：${nextDose.timeLabel} ${nextDose.medicationName}",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
                     )
                 }
             }
@@ -462,27 +461,37 @@ private fun DoseCard(
                     Spacer(modifier = Modifier.width(12.dp))
 
                     Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = dose.medicationName,
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.SemiBold,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
+                        // The name and the time share the first line, the time pinned right.
+                        //
+                        // The previous layout put the time and the state hint side by side under the
+                        // name, in a plain Row. The hint was therefore handed whatever width was left
+                        // after "21:05" and wrapped inside that sliver, which split "已过 109 分钟"
+                        // between the number and its unit and left the continuation visibly offset
+                        // from every other line on the card.
+                        //
+                        // Putting the time up here gives the hint the full width of the card, so it
+                        // reads as one line ("已完成 · 已过 109 分钟") instead of two ragged ones. A
+                        // long medication name still wraps first - the time is measured before the
+                        // weighted name, so it can never be squeezed out of view.
                         Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = dose.medicationName,
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                modifier = Modifier.weight(1f),
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
                             Text(
                                 text = dose.timeLabel,
                                 style = MaterialTheme.typography.labelLarge,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
-                            Text(
-                                text = "  ·  ${dose.timingHint}",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
                         }
+                        Text(
+                            text = dose.timingHint,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
                     }
 
                     Box {
@@ -559,20 +568,22 @@ private fun DoseCard(
                 }
                 if (chips.isNotEmpty() && !MaterialTheme.prefs.simplifiedMode) {
                     Spacer(modifier = Modifier.height(8.dp))
+                    // No line cap: strength, food timing and the free-text note are all worth
+                    // reading in full, and truncating them hid the tail of long notes.
                     Text(
                         text = chips.joinToString(" · "),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
                     )
                 }
 
                 Spacer(modifier = Modifier.height(10.dp))
 
-                Row(
+                // A wrapping row: the stepper and the status/action group stop fitting side by
+                // side at a large font scale, and a plain Row would hand whichever group is
+                // measured second the leftover width - which can be zero.
+                AdaptiveButtonRow(
                     modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween,
                 ) {
                     QuantityStepper(
@@ -585,7 +596,9 @@ private fun DoseCard(
                     )
 
                     Column(horizontalAlignment = Alignment.End) {
-                        DoseStatusChip(status = dose.status)
+                        // isOverdue is what turns a late dose red before the grace-period sweep
+                        // relabels it; see DoseView.isOverdue.
+                        DoseStatusChip(status = dose.status, isOverdue = dose.isOverdue)
                         AnimatedVisibility(visible = dose.status != DoseStatus.TAKEN) {
                             TextButton(onClick = onMarkTaken) {
                                 Text("标记已服", style = MaterialTheme.typography.labelMedium)

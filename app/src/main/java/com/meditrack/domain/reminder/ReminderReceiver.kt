@@ -55,7 +55,10 @@ class ReminderReceiver : BroadcastReceiver() {
         val pendingResult = goAsync()
         CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
             try {
-                engine.reconcile(trigger)
+                // The payload is a hint, but this one hint is worth passing on: it is what lets the
+                // planner apply "never announce early" to the dose that actually fired instead of to
+                // every dose in the pass.
+                engine.reconcile(trigger, claimedDoseId = doseId.takeIf { it > 0L })
             } catch (t: Throwable) {
                 Log.e(TAG, "reconcile failed for $action", t)
             } finally {

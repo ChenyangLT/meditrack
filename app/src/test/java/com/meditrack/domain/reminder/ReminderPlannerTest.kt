@@ -41,8 +41,9 @@ class ReminderPlannerTest {
         escalationCount: Int = 0,
         preRemindedAtMillis: Long? = null,
         missedNotified: Boolean = false,
+        id: Long = 1L,
     ) = DoseLog(
-        id = 1L,
+        id = id,
         medicationId = 1L,
         scheduleId = 1L,
         epochDay = 0L,
@@ -589,5 +590,65 @@ class ReminderPlannerTest {
         val off = UserPreferences(preReminderEnabled = false)
 
         assertThat(ReminderPlanner.windowFor(off).leadMinutes).isEqualTo(0)
+    }
+
+
+    // ------------------------------------------------- never-early, scoped to one dose
+    //
+    // The alarm intent names the dose it was armed for. Applying "never announce early" to *every*
+    // candidate in the pass - which is what the pipeline used to do - produced six bogus
+    // "触发早于计划" rows and six bogus "corrected" counts every time a single dose alarm fired, which
+    // made the self-check report lie about how much correcting was going on.
+
+    @Test
+    fun `a dose alarm for one dose does not accuse another dose of firing early`() {
+        val other = dose(dueAtMillis = now + 4 * hour, status = DoseStatus.UPCOMING, id = 2L)
+
+        val decision = ReminderPlanner.decide(
+            dose = other,
+            prefs = prefs,
+            context = ReminderContext(
+                nowMillis = now,
+                localMinuteOfDay = 8 * 60,
+                trigger = ReminderTrigger.DOSE_ALARM,
+                claimedDoseId = 1L,
+            ),
+        )
+
+        assertThat(decision).isNotInstanceOf(ReminderDecision.TooEarly::class.java)
+        // ...and it is not announced either: it is simply waiting its turn.
+        assertThat(decision).isInstanceOf(ReminderDecision.Suppressed::class.java)
+    }
+
+    @Test
+    fun `the dose the alarm names is still corrected when it really is early`() {
+        val claimed = dose(dueAtMillis = now + 4 * hour, status = DoseStatus.UPCOMING)
+        val decision = ReminderPlanner.decide(
+            dose = claimed,
+            prefs = prefs,
+            context = ReminderContext(
+                nowMillis = now,
+                localMinuteOfDay = 8 * 60,
+                trigger = ReminderTrigger.DOSE_ALARM,
+                claimedDoseId = claimed.id,
+            ),
+        )
+        assertThat(decision).isInstanceOf(ReminderDecision.TooEarly::class.java)
+    }
+
+    @Test
+    fun `an alarm that names no dose keeps the old conservative reading`() {
+        val other = dose(dueAtMillis = now + 4 * hour, status = DoseStatus.UPCOMING)
+        val decision = ReminderPlanner.decide(
+            dose = other,
+            prefs = prefs,
+            context = ReminderContext(
+                nowMillis = now,
+                localMinuteOfDay = 8 * 60,
+                trigger = ReminderTrigger.DOSE_ALARM,
+                claimedDoseId = null,
+            ),
+        )
+        assertThat(decision).isInstanceOf(ReminderDecision.TooEarly::class.java)
     }
 }

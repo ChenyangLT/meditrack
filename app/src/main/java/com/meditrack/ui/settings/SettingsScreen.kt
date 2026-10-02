@@ -7,6 +7,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -419,7 +420,10 @@ fun SettingsScreen(
                         }
 
                         Spacer(modifier = Modifier.height(4.dp))
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp),
+                        ) {
                             TextButton(onClick = viewModel::repairReminders) {
                                 Text("立即自检并修复")
                             }
@@ -505,48 +509,92 @@ fun SettingsScreen(
                 }
             }
 
-            // ------------------------------------------------- usage monitoring
+            // ------------------------------------------------- unlock catch-up
             item {
-                SettingsSection("手机未使用时暂缓提醒", Icons.Filled.PhoneAndroid) {
+                SettingsSection("解锁补提醒", Icons.Filled.PhoneAndroid) {
                     Text(
-                        text = "开启后：手机长时间没人用时，到点的提醒不会响，而是先记下来；" +
-                            "等你重新拿起手机（解锁或亮屏）的那一刻，立刻补发通知。",
+                        text = "提醒有可能正好落在手机锁屏、装在口袋里的那段时间：闹钟到点了，但没有人看见。" +
+                            "开启后，只要你解锁手机（或重新打开药准时），应用会立刻检查所有" +
+                            "「已经过了时间、还没有记录」的药，并合并成一条提醒告诉你——和系统闹钟是一个道理。",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     SwitchRow(
-                        title = "启用该功能",
-                        subtitle = "默认关闭。关闭时应用不会读取任何手机使用状态",
-                        checked = preferences.idleDeferralEnabled,
-                        onCheckedChange = viewModel::setIdleDeferralEnabled,
+                        title = "解锁时补提醒没吃的药",
+                        subtitle = "默认开启。已吃掉、已跳过、点了「稍后」且还没到时间的都不会打扰",
+                        checked = preferences.unlockReminderEnabled,
+                        onCheckedChange = viewModel::setUnlockReminderEnabled,
                         switchModifier = Modifier.testTag(
-                            com.meditrack.ui.MediTrackTestTags.IDLE_DEFERRAL_SWITCH
+                            com.meditrack.ui.MediTrackTestTags.UNLOCK_REMINDER_SWITCH
                         ),
                     )
 
                     // The remaining controls are meaningless while the feature is off, so they are
-                    // only shown once it is on - fewer knobs for the people who never turn it on.
-                    if (preferences.idleDeferralEnabled) {
+                    // only shown once it is on - fewer knobs for anyone who does not want them.
+                    if (preferences.unlockReminderEnabled) {
                         NumberOptionRow(
-                            title = "多久算「没人用」",
-                            options = listOf(10, 15, 30, 60, 120),
-                            selected = preferences.idleThresholdMinutes,
-                            labelOf = { "$it 分钟" },
-                            onSelect = viewModel::setIdleThresholdMinutes,
-                        )
-                        SwitchRow(
-                            title = "息屏时也暂缓",
-                            subtitle = "即使还没到上面的时间，只要屏幕是黑的就先不发",
-                            checked = preferences.deferWhileScreenOff,
-                            onCheckedChange = viewModel::setDeferWhileScreenOff,
+                            title = "每个药提醒多少次",
+                            options = listOf(1, 2, 3, 5, 10),
+                            selected = preferences.unlockReminderMaxPerDose,
+                            labelOf = { "$it 次" },
+                            onSelect = viewModel::setUnlockReminderMaxPerDose,
                         )
                         Text(
-                            text = "补发时会合并成一条「N 项用药提醒」，点开就能看到具体是哪些药；" +
-                                "如果已经超过上面的判定时间，会按「未服药」记录。",
+                            text = "次数从第一次解锁提醒开始算，每解锁一次最多用掉一次；每个药、每天各算各的。",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        NumberOptionRow(
+                            title = "两次补提醒之间至少间隔",
+                            options = listOf(0, 5, 10, 15, 30),
+                            selected = preferences.unlockReminderMinGapMinutes,
+                            labelOf = { if (it == 0) "不限制" else "$it 分钟" },
+                            onSelect = viewModel::setUnlockReminderMinGapMinutes,
+                        )
+                        val staleLabel = if (preferences.staleReminderMinutes >= 60) {
+                            "${preferences.staleReminderMinutes / 60} 小时"
+                        } else {
+                            "${preferences.staleReminderMinutes} 分钟"
+                        }
+                        Text(
+                            text = "只补提醒「太晚了」范围之内的药（当前：$staleLabel，可在「提醒方式」中修改）；" +
+                                "超过这个范围只会安静地记为未服药。免打扰时段内只留一条静默通知，不会响。",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        SwitchRow(
+                            title = "全屏提醒（像闹钟一样）",
+                            subtitle = "提醒时直接点亮屏幕并显示在锁屏之上；关闭时为横幅 + 震动",
+                            checked = preferences.fullScreenReminderEnabled,
+                            onCheckedChange = {
+                                viewModel.setFullScreenReminderEnabled(context, it)
+                            },
+                        )
+                        if (preferences.fullScreenReminderEnabled) {
+                            val allowed = viewModel.canUseFullScreenIntent(context)
+                            Text(
+                                text = if (allowed) {
+                                    "系统已允许全屏提醒。"
+                                } else {
+                                    "系统尚未允许全屏提醒，此时会退化为横幅 + 震动。" +
+                                        "Android 14 及以上需要手动允许一次。"
+                                },
+                                style = MaterialTheme.typography.bodySmall,
+                                color = if (allowed) {
+                                    MaterialTheme.colorScheme.onSurfaceVariant
+                                } else {
+                                    MaterialTheme.colorScheme.error
+                                },
+                            )
+                            if (!allowed) {
+                                TextButton(onClick = { viewModel.openFullScreenIntentSettings(context) }) {
+                                    Text("去系统设置允许全屏提醒")
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -878,7 +926,15 @@ private fun SwitchRow(
     }
 }
 
-/** A row of chips for a small enum choice. */
+/**
+ * A row of chips for a small enum choice.
+ *
+ * Wraps with [FlowRow] instead of laying the options out in a single [Row]. At the larger font
+ * presets - and especially once the system font scale is added on top - five options no longer fit on
+ * one line, and a plain Row responds by squeezing them until the labels are unreadable. That is the
+ * exact failure this layout exists to prevent: the people most affected are the ones who enlarged the
+ * text precisely because they could not read it.
+ */
 @Composable
 private fun <T> ChipRow(
     title: String,
@@ -890,7 +946,11 @@ private fun <T> ChipRow(
     Column(modifier = Modifier.padding(vertical = 6.dp)) {
         Text(title, style = MaterialTheme.typography.bodyLarge)
         Spacer(modifier = Modifier.height(6.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        FlowRow(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
             options.forEach { option ->
                 FilterChip(
                     selected = option == selected,

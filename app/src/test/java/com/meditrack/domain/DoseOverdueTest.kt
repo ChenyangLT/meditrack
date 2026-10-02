@@ -108,8 +108,76 @@ class DoseOverdueTest {
     }
 
     @Test
-    fun `the timing hint names the state in the user's words`() {
-        // Recorded miss.
-        assertThat(view(now - 120 * minute, DoseStatus.MISSED).timingHint).contains("未服药")
+    fun `the timing hint carries the time, not a restatement of the chip`() {
+        // The status chip already says 未服药 / 已服用 in a colour and with an icon. Repeating it in
+        // the hint cost the line the width that kept the unit word on one line at the largest text
+        // scale, where the only break opportunity left was inside "分钟".
+        val missed = view(now - 120 * minute, DoseStatus.MISSED)
+
+        assertThat(missed.timingHint).contains("120")
+        assertThat(missed.timingHint).doesNotContain("未服药")
+        assertThat(missed.status).isEqualTo(DoseStatus.MISSED)
+    }
+
+    @Test
+    fun `a count can never be separated from its unit by a line break`() {
+        // U+00A0 keeps "120" and "分钟" together; U+2060 (word joiner) keeps 分 and 钟 together,
+        // because Chinese text would otherwise break between any two ideographs.
+        val label = DateTimeUtils.relativeLabel(now - 151 * minute, now)
+
+        assertThat(label).contains("151 分⁠钟")
+        assertThat(label).doesNotContain("151 分钟")   // a plain space here would be breakable
+        assertThat(label).doesNotContain("分钟")        // ...and the joiner is actually present
+    }
+
+    @Test
+    fun `an upcoming dose says how long is left, in one unbreakable phrase`() {
+        val label = DateTimeUtils.relativeLabel(now + 20 * minute, now)
+        assertThat(label).contains("还有 20 分⁠钟")
+    }
+
+    // ------------------------------------------- the stale-stored-status regression
+    //
+    // Measured on a real device: at 22:54 a dose due at 22:49 - whose reminder had already been
+    // posted - still rendered as 「未到时间」, directly beside that card's own "已过 5 分钟". Rows are
+    // written with the status the clock implied when they were *created*, and nothing rewrites them
+    // until the grace-period sweep runs, so the card was lying for the entire window in between.
+
+    @Test
+    fun `a row materialised before its time is overdue once the clock passes it`() {
+        val v = view(now - 5 * minute, DoseStatus.UPCOMING)
+
+        assertThat(v.status).isEqualTo(DoseStatus.DUE)
+        assertThat(v.isOverdue).isTrue()
+        assertThat(v.timingHint).doesNotContain("未到时间")
+    }
+
+    @Test
+    fun `a row still in the future keeps reading as not yet due`() {
+        val v = view(now + 30 * minute, DoseStatus.UPCOMING)
+
+        assertThat(v.status).isEqualTo(DoseStatus.UPCOMING)
+        assertThat(v.isOverdue).isFalse()
+    }
+
+    @Test
+    fun `the clock never overrules what the user recorded`() {
+        // Every one of these is a statement about the user, and must survive any clock.
+        assertThat(view(now + 60 * minute, DoseStatus.TAKEN, takenQuantity = 1.0).status)
+            .isEqualTo(DoseStatus.TAKEN)
+        assertThat(view(now - 60 * minute, DoseStatus.PARTIAL, takenQuantity = 0.5).status)
+            .isEqualTo(DoseStatus.PARTIAL)
+        assertThat(view(now - 60 * minute, DoseStatus.SKIPPED).status)
+            .isEqualTo(DoseStatus.SKIPPED)
+        assertThat(view(now - 60 * minute, DoseStatus.MISSED).status)
+            .isEqualTo(DoseStatus.MISSED)
+    }
+
+    @Test
+    fun `an early-recorded dose stays recorded, never "not yet due"`() {
+        // Taking a dose before its time is still taking it: 07:30 for an 08:00 dose reads 已服用.
+        val v = view(now + 30 * minute, DoseStatus.PARTIAL, takenQuantity = 0.5)
+        assertThat(v.status).isEqualTo(DoseStatus.PARTIAL)
+        assertThat(v.isPartial).isTrue()
     }
 }

@@ -49,10 +49,9 @@ class MediTrackApp : Application(), Configuration.Provider {
     private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
     /**
-     * The runtime registration for device-activity broadcasts, or null while idle deferral is off.
+     * The runtime registration for device-activity broadcasts.
      *
-     * Holding it lets [applyActivityMonitoring] unregister cleanly, which is what makes the "off"
-     * state genuinely inert rather than merely ignored.
+     * Held only so the process keeps a reference to the receiver it handed to the system.
      */
     private var activityReceiver: UserActivityReceiver? = null
 
@@ -81,47 +80,43 @@ class MediTrackApp : Application(), Configuration.Provider {
         // the application context is published for it here.
         com.meditrack.widget.AppContextHolder.install(this)
         notifier.createChannels()
+        registerPresenceReceiver()
         appScope.launch { bootstrap() }
     }
 
     /**
-     * Registers or unregisters the device-activity receiver to match the user's preference.
+     * Registers the device-activity receiver for the life of the process.
      *
-     * Called on every start and whenever the setting changes, so toggling it takes effect
-     * immediately instead of after the next reboot.
+     * Deliberately **not** gated behind a preference any more. The unlock catch-up is part of how
+     * reminders work rather than an opt-in extra, so the app has to be listening from the moment the
+     * process starts - a feature that only begins observing after the user finds and enables it is a
+     * feature that is off when it matters. The receiver does nothing when reminders are switched off,
+     * so an idle registration costs a broadcast delivery and no behaviour.
      *
-     * When the feature is off this unregisters and returns: the app then observes **nothing** about
-     * device usage. That is the point of it being opt-in.
+     * Registration cannot move to the manifest: the platform refuses to deliver these particular
+     * broadcasts to a manifest-declared receiver at all.
      */
-    fun applyActivityMonitoring(enabled: Boolean) {
-        if (enabled) {
-            if (activityReceiver != null) return
-            val receiver = UserActivityReceiver()
-            val filter = IntentFilter().apply {
-                UserActivityReceiver.ACTIONS.forEach(::addAction)
-            }
-            // RECEIVER_NOT_EXPORTED: these are protected system broadcasts, so exported is neither
-            // needed nor wanted.
-            val registered = runCatching {
-                ContextCompat.registerReceiver(
-                    this,
-                    receiver,
-                    filter,
-                    ContextCompat.RECEIVER_NOT_EXPORTED,
-                )
-            }.isSuccess
-            if (registered) {
-                activityReceiver = receiver
-                Log.i(TAG, "idle deferral on: observing device activity")
-            } else {
-                Log.w(TAG, "idle deferral requested but the activity receiver could not be registered")
-            }
+    private fun registerPresenceReceiver() {
+        if (activityReceiver != null) return
+        val receiver = UserActivityReceiver()
+        val filter = IntentFilter().apply {
+            UserActivityReceiver.ACTIONS.forEach(::addAction)
+        }
+        // RECEIVER_NOT_EXPORTED: these are protected system broadcasts, so exported is neither
+        // needed nor wanted.
+        val registered = runCatching {
+            ContextCompat.registerReceiver(
+                this,
+                receiver,
+                filter,
+                ContextCompat.RECEIVER_NOT_EXPORTED,
+            )
+        }.isSuccess
+        if (registered) {
+            activityReceiver = receiver
+            Log.i(TAG, "presence monitoring on: unlock catch-up is live")
         } else {
-            activityReceiver?.let { receiver ->
-                runCatching { unregisterReceiver(receiver) }
-                activityReceiver = null
-                Log.i(TAG, "idle deferral off: device activity is no longer observed")
-            }
+            Log.w(TAG, "presence receiver refused; unlock catch-up will still run on app resume")
         }
     }
 
@@ -132,10 +127,6 @@ class MediTrackApp : Application(), Configuration.Provider {
      */
     private suspend fun bootstrap() {
         val prefs = runCatching { settingsRepository.current() }.getOrNull() ?: return
-
-        // Only wire up device-activity observation when the user asked for it.
-        runCatching { applyActivityMonitoring(prefs.idleDeferralEnabled) }
-            .onFailure { Log.w(TAG, "activity monitoring setup failed", it) }
 
         // The one and only schedule builder. App start is just another trigger for it.
         runCatching { reminderEngine.reconcile(ReminderTrigger.APP_START) }

@@ -103,17 +103,38 @@ data class DoseLog(
     val missedNotified: Boolean = false,
 
     /**
-     * When the reminder was withheld because the phone was idle (see
-     * [com.meditrack.domain.reminder.UsageMonitor]) and has not been shown yet.
+     * **Legacy.** When a reminder was withheld by the retired idle-deferral feature, and has not been
+     * shown yet.
      *
-     * Non-null means "the user still owes themselves this notification": the moment they pick the
-     * phone up again, every deferred dose is delivered in one batch. Storing it on the row rather
-     * than in memory is what makes that promise survive a process death or a reboot.
+     * Nothing writes this any more: withholding a reminder across its grace period was what turned a
+     * missed notification into a silent 未服药 record, which is exactly the "提醒被抵掉" failure the
+     * unlock catch-up now solves by re-announcing instead of holding back.
      *
-     * Only ever written when the user explicitly turns idle deferral on. With the default settings
-     * it stays null and reminders behave exactly as they always did.
+     * It is still *read*, so a reminder that was withheld by an older build is delivered rather than
+     * stranded - the reconcile pass treats any leftover row here as an owed notification and clears
+     * the flag once it has been announced.
      */
     val deferredAtMillis: Long? = null,
+
+    /**
+     * How many "解锁补提醒" announcements this dose has produced.
+     *
+     * ## Why this is its own counter
+     *
+     * The ordinary escalation budget ([escalationCount]) is spent by the *scheduled* reminder: the
+     * first announcement plus a couple of repeats. A dose whose alarm fired while the phone was
+     * locked and dark, however, may never have been *noticed* at all - and by the time the user picks
+     * the phone up it is often past its grace period, where the pipeline only posts a silent
+     * 未服药 record. This counter gives that situation its own, separate budget, so "我没看见"
+     * degrades into "解锁时再提醒我几次" instead of into silence.
+     *
+     * It is counted per dose row, and a dose row *is* one day, so the budget naturally resets every
+     * day. Consumed one per unlock at most, so unlocking repeatedly cannot burn it in a minute.
+     */
+    val unlockReminderCount: Int = 0,
+
+    /** When the last unlock catch-up was posted, used to space them out. Null when never. */
+    val unlockReminderAtMillis: Long? = null,
 
     /** True when the user confirmed the "是否确认多服？" dialog. */
     val overDoseConfirmed: Boolean = false,

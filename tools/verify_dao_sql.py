@@ -3,7 +3,7 @@ SQL verification for the reminder DAO layer.
 
 There is no device attached, so Room cannot validate its own queries at runtime here. This harness
 gets the same evidence by preparing every `@Query` in the DAO layer against a real SQLite database
-built from the checked-in v3 schema:
+built from the checked-in v4 schema:
 
   * `EXPLAIN <sql>` compiles the statement, so a typo, a wrong column name or a bad function call is
     a hard error - exactly what Room's `SQLiteStatement` preparation would raise on device.
@@ -37,8 +37,8 @@ def check(condition, message):
         failures.append(message)
 
 
-def build_v3(conn):
-    with open(os.path.join(SCHEMA_DIR, "3.json"), encoding="utf-8") as fh:
+def build_v4(conn):
+    with open(os.path.join(SCHEMA_DIR, "4.json"), encoding="utf-8") as fh:
         database = json.load(fh)["database"]
     for entity in database["entities"]:
         table = entity["tableName"]
@@ -83,10 +83,10 @@ def main():
 
     conn = sqlite3.connect(":memory:")
     conn.execute("PRAGMA foreign_keys = ON")
-    build_v3(conn)
+    build_v4(conn)
 
     queries = extract_queries()
-    print(f"\n--- preparing {len(queries)} @Query statement(s) against the v3 schema ---")
+    print(f"\n--- preparing {len(queries)} @Query statement(s) against the v4 schema ---")
     bad = 0
     for filename, line, sql in queries:
         stripped = " ".join(sql.split())
@@ -96,7 +96,7 @@ def main():
             bad += 1
             check(False, f"{filename}:{line} {exc} :: {stripped[:100]}")
 
-    check(bad == 0, f"all {len(queries)} statements prepare cleanly against the real v3 schema")
+    check(bad == 0, f"all {len(queries)} statements prepare cleanly against the real v4 schema")
 
     # ------------------------------------------------- behaviour of the new queries
     print("\n--- seeding data to exercise the arming queries ---")
@@ -123,15 +123,20 @@ def main():
         (5, NOW + 5 * 24 * 60 * MIN, None, None, 0, None, 0, "UPCOMING"),  # beyond the horizon
         (6, NOW - 20 * MIN, None, NOW - 20 * MIN, 1, None, 0, "DUE"),  # already announced
         (7, NOW - 10 * MIN, None, None, 0, None, 0, "SKIPPED"),      # resolved
+        (8, NOW - 40 * MIN, None, None, 1, None, 0, "PARTIAL"),      # half taken
+        (9, NOW - 5 * 60 * MIN, None, None, 0, None, 1, "MISSED"),   # too old to act on
     ]
     for (rid, planned, snoozed, notified, esc, pre, missed, status) in rows:
+        # A PARTIAL row has to actually carry a recorded amount, or it would just be an untouched DUE
+        # row that happens to be labelled partial.
+        taken = 0.5 if status == "PARTIAL" else 0.0
         conn.execute(
             "INSERT INTO dose_logs (id, medicationId, scheduleId, epochDay, plannedMinuteOfDay, "
             "plannedTimeMillis, plannedQuantity, plannedUnit, takenQuantity, notifiedTimeMillis, "
             "escalationCount, preRemindedAtMillis, snoozeCount, snoozedUntilMillis, missedNotified, "
-            "overDoseConfirmed, status, note, createdAt, updatedAt) "
-            "VALUES (?,1,1,0,480,?,1.0,'片',0.0,?,?,?,0,?,?,0,?,'',0,0)",
-            (rid, planned, notified, esc, pre, snoozed, missed, status),
+            "overDoseConfirmed, status, note, createdAt, updatedAt, unlockReminderCount) "
+            "VALUES (?,1,1,0,480,?,1.0,'片',?,?,?,?,0,?,?,0,?,'',0,0,0)",
+            (rid, planned, taken, notified, esc, pre, snoozed, missed, status),
         )
     conn.commit()
 
@@ -178,7 +183,7 @@ def main():
     overdue = conn.execute(
         """
         SELECT id FROM dose_logs
-         WHERE status IN ('UPCOMING', 'DUE', 'PARTIAL')
+         WHERE status IN ('UPCOMING', 'DUE', 'PARTIAL', 'MISSED')
            AND MAX(COALESCE(snoozedUntilMillis, plannedTimeMillis), plannedTimeMillis) <= ?
            AND MAX(COALESCE(snoozedUntilMillis, plannedTimeMillis), plannedTimeMillis) >= ?
          ORDER BY plannedTimeMillis ASC
@@ -189,6 +194,55 @@ def main():
     check(2 in overdue_ids, "a dose that came due minutes ago is caught up")
     check(3 not in overdue_ids, "a snoozed dose whose new time is ahead is not treated as overdue")
     check(6 in overdue_ids, "an already-announced dose is still evaluated (the planner decides)")
+    # The regression this release fixes: the same reconcile pass derives 未服药 *before* it collects
+    # candidates, so excluding MISSED here made a dose that lapsed a moment earlier invisible to the
+    # very pass that was supposed to announce it.
+    check(1 in overdue_ids, "a dose already derived as 未服药 is still visible to the pass that announces it")
+
+    # Mirrors DoseLogDao.getUnlockCatchUpCandidates.
+    print("\n[getUnlockCatchUpCandidates] the unlock catch-up query")
+    conn.execute("UPDATE dose_logs SET missedNotified = 1 WHERE id = 1")
+    conn.commit()
+    unlock_rows = conn.execute(
+        """
+        SELECT id FROM dose_logs
+         WHERE status IN ('UPCOMING', 'DUE', 'PARTIAL', 'MISSED')
+           AND MAX(COALESCE(snoozedUntilMillis, plannedTimeMillis), plannedTimeMillis) <= ?
+           AND MAX(COALESCE(snoozedUntilMillis, plannedTimeMillis), plannedTimeMillis) >= ?
+         ORDER BY plannedTimeMillis ASC
+        """,
+        (NOW, NOW - 180 * MIN),
+    ).fetchall()
+    unlock_ids = sorted(r[0] for r in unlock_rows)
+    check(1 in unlock_ids, "a dose recorded as 未服药 is announced again when the phone is picked up")
+    check(1 in unlock_ids, "the silent 未服药 notice does not forfeit the audible catch-up (missedNotified=1)")
+    check(2 in unlock_ids, "a dose that simply came due is announced on unlock")
+    check(8 in unlock_ids, "a partially taken dose is announced - half a dose is not a finished one")
+    check(3 not in unlock_ids, "an unexpired snooze keeps the catch-up away")
+    check(4 not in unlock_ids, "a dose whose time has not come is never announced early")
+    check(7 not in unlock_ids, "a skipped dose is never re-announced")
+    check(9 not in unlock_ids, "a dose past the too-late window is left to the silent record")
+
+    # The two writers behind recordUnlockReminder.
+    print("\n[recordUnlockReminder] the budget is spent by audible catch-ups only")
+    conn.execute(
+        "UPDATE dose_logs SET unlockReminderCount = unlockReminderCount + 1, "
+        "unlockReminderAtMillis = ? WHERE id = 2",
+        (NOW,),
+    )
+    conn.execute("UPDATE dose_logs SET unlockReminderAtMillis = ? WHERE id = 8", (NOW,))
+    conn.commit()
+    spent = conn.execute(
+        "SELECT unlockReminderCount, unlockReminderAtMillis FROM dose_logs WHERE id = 2"
+    ).fetchone()
+    quiet = conn.execute(
+        "SELECT unlockReminderCount, unlockReminderAtMillis FROM dose_logs WHERE id = 8"
+    ).fetchone()
+    check(spent == (1, NOW), "an audible catch-up spends one from the budget and stamps the time")
+    check(
+        quiet == (0, NOW),
+        "a quiet-hours note stamps the time without spending the budget the user is saving",
+    )
 
     # Mirrors DoseLogDao.getDeferred.
     print("\n[deferred] withheld reminders are still owed")

@@ -9,6 +9,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.meditrack.data.prefs.ThemeMode
@@ -60,8 +61,11 @@ fun MediTrackTheme(
     val doseColors = remember(darkTheme, preferences.highContrast) {
         doseColorsFor(darkTheme, preferences.highContrast)
     }
-    val typography = remember(preferences.fontScale) {
-        MediTrackTypography.forScale(preferences.fontScale)
+    // The system's own accessibility font scale is read here and folded into the app's preset, so
+    // the two cannot multiply into text that no layout can hold. See [FontScaling].
+    val systemFontScale = LocalDensity.current.fontScale
+    val typography = remember(preferences.fontScale, systemFontScale) {
+        MediTrackTypography.forScale(preferences.fontScale, systemFontScale)
     }
 
     CompositionLocalProvider(

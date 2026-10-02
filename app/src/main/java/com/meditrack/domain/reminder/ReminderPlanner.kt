@@ -45,8 +45,16 @@ enum class ReminderTrigger(val label: String) {
     /** The process started. */
     APP_START("应用启动"),
 
-    /** The user picked the phone up. Also the app being brought to the foreground. */
-    USER_RETURN("用户回到手机"),
+    /**
+     * The user picked the phone up - either the lock screen was dismissed, or the app was brought
+     * back to the foreground.
+     *
+     * This is the *only* trigger that carries the unlock catch-up (see
+     * [ReminderDecision.UnlockCatchUp]): it is the one moment where the app has direct evidence that
+     * a human is looking at the screen, and therefore the one moment where re-announcing a dose
+     * nobody saw is a service rather than an interruption.
+     */
+    USER_RETURN("解锁/回到应用"),
 
     /** A reminder-related setting changed. */
     SETTINGS_CHANGED("设置变更"),
@@ -96,7 +104,15 @@ enum class ReminderSuppression(val label: String) {
 enum class DeferReason(val label: String) {
     /** The dose fell inside the user's quiet hours; it comes back when they end. */
     QUIET_HOURS("免打扰时段"),
-    /** Nobody was looking at the phone; it comes back when they pick it up. */
+    /**
+     * **Retired.** Nobody was looking at the phone.
+     *
+     * The value survives so that an audit row written by an older build ("DEFER_IDLE") still decodes
+     * to something meaningful. Nothing produces it any more: holding a reminder back until the user
+     * picked the phone up was replaced by the unlock catch-up, which re-announces the dose instead of
+     * withholding it - see [ReminderDecision.UnlockCatchUp].
+     */
+    @Deprecated("Replaced by the unlock catch-up; kept so old audit rows still decode.")
     IDLE("手机闲置"),
 }
 
@@ -164,6 +180,27 @@ sealed interface ReminderDecision {
         override val code: String get() = "MISSED"
     }
 
+    /**
+     * An overdue, still-unrecorded dose re-announced because the user just picked the phone up.
+     *
+     * This is the answer to the failure the scheduled pipeline cannot cover on its own: the reminder
+     * fired while the phone was locked in a pocket, nobody saw it, and by the time the user looked the
+     * dose was past its grace period - where every other branch below, correctly, decides to stay
+     * quiet. Announcements of this kind are counted separately ([DoseLog.unlockReminderCount]) so they
+     * cannot spend the ordinary escalation budget, and vice versa.
+     *
+     * [quiet] means the phone was picked up inside the user's quiet hours: the dose is still worth
+     * noting, but it must not buzz. [occurrence] is the 1-based number of this catch-up for the dose.
+     */
+    data class UnlockCatchUp(
+        val dueAtMillis: Long,
+        val lateMillis: Long,
+        val quiet: Boolean,
+        val occurrence: Int,
+    ) : ReminderDecision {
+        override val code: String get() = "UNLOCK_CATCH_UP"
+    }
+
     /** Held back deliberately; [untilMillis] is when it becomes due again. */
     data class Deferred(
         val untilMillis: Long,
@@ -191,7 +228,38 @@ data class ReminderContext(
      */
     val quietHoursEndMillis: Long = 0L,
     val trigger: ReminderTrigger,
-)
+    /**
+     * True for the "用户回到了手机" triggers, which are allowed to re-announce a dose that every other
+     * trigger would leave alone.
+     *
+     * Explicit rather than derived from [trigger] so a test can exercise the unlock rule without
+     * pretending to be an alarm, and so a future trigger can opt in deliberately.
+     */
+    val unlockCatchUp: Boolean = false,
+    /**
+     * The dose the fired alarm named, when the trigger is an alarm.
+     *
+     * The alarm intent carries the dose it was armed for, and this is where that fact enters the
+     * decision. It matters because "never announce a dose early" is a rule about *one* dose's alarm,
+     * not about the pass as a whole: a single dose alarm also sweeps every other candidate, and
+     * accusing those of firing hours early was pure noise - it filled the audit trail with
+     * "触发早于计划" rows and made the self-check report claim it had "corrected" six doses every time
+     * an alarm fired.
+     */
+    val claimedDoseId: Long? = null,
+) {
+    /**
+     * True when the trigger is asserting that *this* dose's alarm fired.
+     *
+     * An alarm that named no dose (or a dose we cannot see) keeps the old, conservative reading:
+     * everything in the pass is treated as if it were the claimed dose.
+     */
+    fun claims(dose: DoseLog): Boolean {
+        if (!trigger.claimsOneDose) return false
+        val claimed = claimedDoseId ?: return true
+        return claimed == dose.id
+    }
+}
 
 /**
  * The reminder policy, as one pure function.
@@ -255,6 +323,53 @@ object ReminderPlanner {
         dose.snoozedUntilMillis == null || dose.snoozedUntilMillis <= dose.plannedTimeMillis
 
     /**
+     * Whether an **unlock catch-up** may announce this dose right now.
+     *
+     * The whole rule, as one pure function, because it is the product promise of the feature and it
+     * deserves to be exercised on the JVM rather than reasoned about at a call site. It says yes only
+     * when all of the following hold:
+     *
+     *  1. the feature is on, and the dose is neither taken nor skipped - the user has not resolved it;
+     *  2. the dose is genuinely overdue (its *effective* due instant, so a snooze moves the deadline);
+     *  3. no snooze is still running - "稍后" means "leave me alone until then", and once that time
+     *     arrives the dose becomes eligible again like any other;
+     *  4. the lateness is still inside the user's own "太晚了" threshold ([UserPreferences.staleReminderMinutes]).
+     *     Past it the moment has gone, and the pipeline's silent 补记 prompt is the honest answer;
+     *  5. the dose still has unlock reminders left in its own budget, and enough time has passed since
+     *     the last one that a fresh unlock is a new event rather than a repeat of the same glance.
+     *
+     * A **partially** recorded dose is eligible: "吃了一半" is not "吃好了", and the user asked to be
+     * told about exactly that case.
+     */
+    fun unlockCatchUpEligible(
+        dose: DoseLog,
+        prefs: UserPreferences,
+        nowMillis: Long,
+    ): Boolean {
+        if (!prefs.remindersEnabled || !prefs.unlockReminderEnabled) return false
+        if (dose.status == DoseStatus.TAKEN || dose.status == DoseStatus.SKIPPED) return false
+
+        val due = effectiveDueMillis(dose)
+        if (nowMillis < due) return false
+
+        // A snooze that has not expired is an explicit "not now". Once it has expired the dose is
+        // simply overdue again, and rule 3 no longer applies to it.
+        val snoozedUntil = dose.snoozedUntilMillis
+        if (snoozedUntil != null && nowMillis < snoozedUntil) return false
+
+        val late = nowMillis - due
+        if (late > prefs.staleReminderMinutes.coerceAtLeast(1) * 60_000L) return false
+
+        if (dose.unlockReminderCount >= prefs.unlockReminderMaxPerDose.coerceAtLeast(1)) return false
+
+        val lastAt = dose.unlockReminderAtMillis
+        if (lastAt != null && nowMillis - lastAt < prefs.unlockReminderMinGapMinutes.coerceAtLeast(0) * 60_000L) {
+            return false
+        }
+        return true
+    }
+
+    /**
      * Lateness beyond which an armed alarm counts as never delivered.
      *
      * Generous on purpose. Claiming an alarm was "lost" is an accusation against the operating system,
@@ -312,6 +427,21 @@ object ReminderPlanner {
         val due = effectiveDueMillis(dose)
         val untouched = QuantityFormatter.isZero(dose.takenQuantity)
 
+        // 2b. The user just picked the phone up. This sits deliberately **before** every
+        //     "already told" and "past the grace period" branch below, because those branches are
+        //     exactly what turned a reminder nobody saw into permanent silence: the first
+        //     announcement had already been spent on a locked, dark screen, and the lapsed dose could
+        //     only ever produce one silent 未服药 note afterwards. Re-announcing is the point here,
+        //     and it is safe to do because the unlock path carries its own budget and minimum gap.
+        if (context.unlockCatchUp && unlockCatchUpEligible(dose, prefs, now)) {
+            return ReminderDecision.UnlockCatchUp(
+                dueAtMillis = due,
+                lateMillis = now - due,
+                quiet = isQuiet(context),
+                occurrence = dose.unlockReminderCount + 1,
+            )
+        }
+
         // 3. Error correction, part one: a dose whose only announcement was itself a catch-up is
         //    settled. The moment is long gone and nothing further should ever be said about it, so
         //    this has to be checked before every other branch - otherwise the catch-up it just sent
@@ -331,7 +461,7 @@ object ReminderPlanner {
         //    a boot pass or an app launch legitimately walks over doses that are hours away, and
         //    calling that an error would fill the audit trail with noise and make the one signal that
         //    matters impossible to see.
-        if (context.trigger.claimsOneDose) {
+        if (context.claims(dose)) {
             val earliest = due - window.leadMillis - window.earlyToleranceMillis
             if (now < earliest) return ReminderDecision.TooEarly(due, due - now)
         }

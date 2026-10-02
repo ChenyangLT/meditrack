@@ -14,6 +14,13 @@
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <!-- Notification permission (runtime on Android 13+). -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!--
+      Optional, and off by default: lets a reminder take over the screen like a system alarm
+      (设置 → 全屏提醒). Android 14+ grants this only to genuine alarm-clock apps and requires the user
+      to allow it explicitly in the system settings, so a refused grant simply degrades the reminder
+      to an ordinary heads-up banner - the reminder always arrives either way.
+    -->
+    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
     <uses-permission android:name="android.permission.VIBRATE" />
     <!-- Ask to be exempted from battery optimisation so long-running schedules survive. -->
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
@@ -129,14 +136,15 @@
                 android:value="medication_reminder_reliability" />
         </service>
 
-        <!-- "The user picked the phone up" signal, used ONLY by the opt-in idle-deferral feature
-             (设置 → 提醒 → 手机未使用时暂缓提醒, default off).
+        <!-- "The user picked the phone up" signal, which drives the unlock catch-up
+             («解锁补提醒»): an overdue dose that nobody saw is re-announced the moment the phone is
+             unlocked, or when the app comes back to the foreground.
 
              These broadcasts cannot be received by a manifest-declared receiver - the platform
              rejects ACTION_SCREEN_ON / ACTION_USER_PRESENT in a manifest intent-filter - so this
-             component exists only to point at the class and is registered at runtime by
-             MediTrackApp once the user turns the feature on. exported="false" keeps it private to
-             the app; the runtime registration is what actually delivers the broadcasts. -->
+             component exists only to point at the class, and MediTrackApp registers it at runtime for
+             the life of the process. exported="false" keeps it private to the app; the runtime
+             registration is what actually delivers the broadcasts. -->
         <receiver
             android:name=".domain.reminder.UserActivityReceiver"
             android:exported="false" />

@@ -7,7 +7,6 @@ import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.core.intPreferencesKey
-import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
@@ -59,9 +58,17 @@ class SettingsRepository @Inject constructor(
         val QUIET_START = intPreferencesKey("quiet_start")
         val QUIET_END = intPreferencesKey("quiet_end")
 
+        // Retired idle deferral. The keys are still *read* (and written back on import) so an old
+        // backup round-trips; nothing makes a decision from them any more.
         val IDLE_DEFERRAL = booleanPreferencesKey("idle_deferral")
         val IDLE_THRESHOLD = intPreferencesKey("idle_threshold")
         val DEFER_SCREEN_OFF = booleanPreferencesKey("defer_screen_off")
+
+        // Unlock catch-up: the "speak up when the user picks the phone up" path.
+        val UNLOCK_REMINDER = booleanPreferencesKey("unlock_reminder")
+        val UNLOCK_REMINDER_MAX = intPreferencesKey("unlock_reminder_max")
+        val UNLOCK_REMINDER_GAP = intPreferencesKey("unlock_reminder_gap")
+        val FULL_SCREEN_REMINDER = booleanPreferencesKey("full_screen_reminder")
 
         // Reminder reliability / humanised timing (see UserPreferences for what each one does).
         val PRE_REMINDER = booleanPreferencesKey("pre_reminder")
@@ -78,14 +85,6 @@ class SettingsRepository @Inject constructor(
         val RELIABILITY_WORKER = booleanPreferencesKey("reliability_worker")
         val ALARM_CLOCK_ALARMS = booleanPreferencesKey("alarm_clock_alarms")
         val GUARD_SERVICE = booleanPreferencesKey("guard_service")
-
-        /**
-         * Wall-clock time of the last observed user interaction.
-         *
-         * Held in DataStore rather than memory so an idle period survives a process death - which is
-         * the normal case, since the app is usually not running while the phone sits on a table.
-         */
-        val LAST_INTERACTION = longPreferencesKey("last_interaction")
 
         val WIDGET_LIMIT = intPreferencesKey("widget_limit")
 
@@ -147,11 +146,38 @@ class SettingsRepository @Inject constructor(
         p[Keys.QUIET_END] = endMinute.coerceIn(0, 1439)
     }
 
-    /** Turns the opt-in idle-deferral feature on or off. Off means "never inspect device state". */
+    /**
+     * Retired idle-deferral writers.
+     *
+     * Nothing in the app calls these to change behaviour any more; they survive so importing an old
+     * backup (which carries the fields) does not need a special case.
+     */
+    @Deprecated("Idle deferral was replaced by the unlock catch-up; kept for backup import.")
     suspend fun setIdleDeferralEnabled(enabled: Boolean) = edit { it[Keys.IDLE_DEFERRAL] = enabled }
+
+    @Deprecated("Idle deferral was replaced by the unlock catch-up; kept for backup import.")
     suspend fun setIdleThresholdMinutes(minutes: Int) =
         edit { it[Keys.IDLE_THRESHOLD] = minutes.coerceIn(5, 720) }
+
+    @Deprecated("Idle deferral was replaced by the unlock catch-up; kept for backup import.")
     suspend fun setDeferWhileScreenOff(enabled: Boolean) = edit { it[Keys.DEFER_SCREEN_OFF] = enabled }
+
+    // ------------------------------------------------------- unlock catch-up
+
+    /** Turns the "speak up the moment the phone is picked up" path on or off. */
+    suspend fun setUnlockReminderEnabled(enabled: Boolean) = edit { it[Keys.UNLOCK_REMINDER] = enabled }
+
+    /** How many audible unlock catch-ups one dose may produce in its day (1-10). */
+    suspend fun setUnlockReminderMaxPerDose(count: Int) =
+        edit { it[Keys.UNLOCK_REMINDER_MAX] = count.coerceIn(1, 10) }
+
+    /** Minimum spacing between two unlock catch-ups for the same dose. */
+    suspend fun setUnlockReminderMinGapMinutes(minutes: Int) =
+        edit { it[Keys.UNLOCK_REMINDER_GAP] = minutes.coerceIn(0, 120) }
+
+    /** Whether reminders may take over the screen like a system alarm. */
+    suspend fun setFullScreenReminderEnabled(enabled: Boolean) =
+        edit { it[Keys.FULL_SCREEN_REMINDER] = enabled }
 
     // ------------------------------- reminder reliability / humanised timing
 
@@ -183,13 +209,6 @@ class SettingsRepository @Inject constructor(
 
     /** Turns the background guard service on or off; callers must start/stop it accordingly. */
     suspend fun setGuardServiceEnabled(enabled: Boolean) = edit { it[Keys.GUARD_SERVICE] = enabled }
-
-    /** Records that the user just interacted with the device. */
-    suspend fun recordInteraction(at: Long = System.currentTimeMillis()) =
-        edit { it[Keys.LAST_INTERACTION] = at }
-
-    /** When the user was last seen interacting, or null if never recorded. */
-    suspend fun lastInteraction(): Long? = dataStore.data.first()[Keys.LAST_INTERACTION]
 
     suspend fun setWidgetItemLimit(limit: Int) = edit { it[Keys.WIDGET_LIMIT] = limit.coerceIn(1, 8) }
 
@@ -250,6 +269,12 @@ class SettingsRepository @Inject constructor(
             idleDeferralEnabled = this[Keys.IDLE_DEFERRAL] ?: defaults.idleDeferralEnabled,
             idleThresholdMinutes = this[Keys.IDLE_THRESHOLD] ?: defaults.idleThresholdMinutes,
             deferWhileScreenOff = this[Keys.DEFER_SCREEN_OFF] ?: defaults.deferWhileScreenOff,
+            unlockReminderEnabled = this[Keys.UNLOCK_REMINDER] ?: defaults.unlockReminderEnabled,
+            unlockReminderMaxPerDose = this[Keys.UNLOCK_REMINDER_MAX] ?: defaults.unlockReminderMaxPerDose,
+            unlockReminderMinGapMinutes =
+                this[Keys.UNLOCK_REMINDER_GAP] ?: defaults.unlockReminderMinGapMinutes,
+            fullScreenReminderEnabled =
+                this[Keys.FULL_SCREEN_REMINDER] ?: defaults.fullScreenReminderEnabled,
             preReminderEnabled = this[Keys.PRE_REMINDER] ?: defaults.preReminderEnabled,
             preReminderLeadMinutes = this[Keys.PRE_REMINDER_LEAD] ?: defaults.preReminderLeadMinutes,
             reminderFreshMinutes = this[Keys.FRESH_MINUTES] ?: defaults.reminderFreshMinutes,

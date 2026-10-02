@@ -5,10 +5,13 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -33,7 +36,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.meditrack.core.theme.doseColors
 import com.meditrack.core.theme.prefs
@@ -128,14 +130,18 @@ private fun CalendarCell(
     modifier: Modifier = Modifier,
 ) {
     val dotColor = adherenceColor(day.adherence)
-    // A fixed cell height instead of Modifier.aspectRatio: aspectRatio on a weight(1f) child asks
+    // A minimum cell height instead of Modifier.aspectRatio: aspectRatio on a weight(1f) child asks
     // the parent Row to derive the cross-axis size from a main-axis size it has not resolved yet,
-    // which is ambiguous during the first measure.
+    // which is ambiguous during the first measure. A minimum keeps the grid even while still
+    // letting the day number grow with the font scale.
     val cellHeight = if (MaterialTheme.prefs.simplifiedMode) 52.dp else 44.dp
 
     Column(
         modifier = modifier
-            .height(cellHeight)
+            // heightIn, not height: the cell must keep its minimum grid size, but at a large font
+            // scale the day number is taller than 44dp and an exact height would clip it against
+            // the next week.
+            .heightIn(min = cellHeight)
             .padding(2.dp)
             .background(
                 color = when {
@@ -177,12 +183,15 @@ private fun CalendarCell(
 }
 
 /** Always-visible key for the calendar colours. */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun CalendarLegend() {
     val doseColors = MaterialTheme.doseColors
-    Row(
+    // Five dot+label pairs are far too wide to guarantee on one line once the labels grow.
+    FlowRow(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(14.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         LegendItem("已服", doseColors.taken)
         LegendItem("部分", doseColors.partial)
@@ -219,6 +228,7 @@ private fun adherenceColor(adherence: DayAdherence): Color {
 }
 
 /** Adherence, streak and totals for the selected range. */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun StatisticsCard(state: HistoryUiState, viewModel: HistoryViewModel) {
     val stats = state.stats
@@ -231,9 +241,12 @@ fun StatisticsCard(state: HistoryUiState, viewModel: HistoryViewModel) {
         ),
     ) {
         Column(modifier = Modifier.padding(14.dp)) {
-            Row(
+            // Wrapping, not a Row: the range chips already fill the card at 1.0x with the default
+            // labels, and a Row would cut the last one off at any larger font scale.
+            FlowRow(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
                 HistoryRange.entries.forEach { range ->
                     FilterChip(
@@ -260,7 +273,12 @@ fun StatisticsCard(state: HistoryUiState, viewModel: HistoryViewModel) {
                         color = adherenceTextColor(stats.adherencePercent),
                     )
                 }
-                Column(horizontalAlignment = Alignment.End) {
+                // Both halves carry a weight: otherwise the streak block is measured first and
+                // can take the whole width, squeezing the adherence figure into a 0dp column.
+                Column(
+                    modifier = Modifier.weight(1f),
+                    horizontalAlignment = Alignment.End,
+                ) {
                     Text(
                         text = "连续服药",
                         style = MaterialTheme.typography.labelMedium,
@@ -383,8 +401,6 @@ fun DayDetailCard(
                             Text(
                                 text = row.medicationName,
                                 style = MaterialTheme.typography.bodyLarge,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
                             )
                             Text(
                                 text = row.timeLabel + " · " + visuals.label + " · " +

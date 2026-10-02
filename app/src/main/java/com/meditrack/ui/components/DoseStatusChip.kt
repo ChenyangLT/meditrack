@@ -138,8 +138,17 @@ fun DoseStatusChip(
     modifier: Modifier = Modifier,
     compact: Boolean = false,
     labelOverride: String? = null,
+    /**
+     * True when the scheduled time has passed with nothing recorded.
+     *
+     * Must be passed wherever the caller knows it. Defaulting it to `false` made a dose that is
+     * already late - and whose reminder has already fired - render as amber 待服用, which reads as
+     * "you still have time" when the truth is the opposite. The card it sits in was already painting
+     * its accent red from the same fact, so the chip and the card disagreed.
+     */
+    isOverdue: Boolean = false,
 ) {
-    val visuals = doseStatusVisuals(status)
+    val visuals = doseStatusVisuals(status, isOverdue)
     val label = labelOverride ?: visuals.label
     val borderWidth = if (MaterialTheme.prefs.highContrast) 1.5.dp else 0.dp
 

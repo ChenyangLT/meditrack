@@ -98,6 +98,18 @@
     <string name="notification_title_missed">未服药提醒：%1$s</string>
     <string name="notification_title_digest">%1$d 项用药提醒</string>
     <string name="notification_title_deferred_summary">%1$d 项用药提醒</string>
+    <!--
+      The unlock catch-up («解锁补提醒»).
+
+      Phrased as a status the user can still act on ("还没吃") rather than as an alarm that failed,
+      because that is what it is: a second chance, not a complaint. The multi-dose summary says how
+      many are outstanding, since that is the one number that matters when three of them are.
+    -->
+    <string name="notification_title_unlock_single">还没吃：%1$s</string>
+    <string name="notification_body_unlock_single">%1$s 这一次还没有记录</string>
+    <string name="notification_title_unlock_summary">你还有 %1$d 项没吃</string>
+    <string name="notification_line_unlock_item">%1$s · %2$s · %3$s</string>
+    <string name="notification_line_unlock_how">解锁时补提醒：点「已服」记录，或点「稍后」把它推到稍后。</string>
     <string name="notification_title_snooze_state">已推迟：%1$s</string>
     <string name="notification_body_snooze_state">将在 %1$s 再提醒你</string>
     <string name="notification_body_catchup">%1$s那次还没有记录。如果已经吃过，点一下「已服」补记即可。</string>

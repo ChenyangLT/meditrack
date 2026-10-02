@@ -174,6 +174,12 @@ data class SettingsDto(
     @SerializedName("idleDeferralEnabled") val idleDeferralEnabled: Boolean? = null,
     @SerializedName("idleThresholdMinutes") val idleThresholdMinutes: Int? = null,
     @SerializedName("deferWhileScreenOff") val deferWhileScreenOff: Boolean? = null,
+    // Added in the unlock-catch-up release. Nullable like every other field, so a backup written by an
+    // older build imports cleanly and simply leaves these at their shipped defaults.
+    @SerializedName("unlockReminderEnabled") val unlockReminderEnabled: Boolean? = null,
+    @SerializedName("unlockReminderMaxPerDose") val unlockReminderMaxPerDose: Int? = null,
+    @SerializedName("unlockReminderMinGapMinutes") val unlockReminderMinGapMinutes: Int? = null,
+    @SerializedName("fullScreenReminderEnabled") val fullScreenReminderEnabled: Boolean? = null,
 )
 
 /** Outcome of an import, surfaced to the user as a toast. */
@@ -427,6 +433,12 @@ class BackupRepository @Inject constructor(
         dto.idleDeferralEnabled?.let { setIdleDeferralEnabled(it) }
         dto.idleThresholdMinutes?.let { setIdleThresholdMinutes(it) }
         dto.deferWhileScreenOff?.let { setDeferWhileScreenOff(it) }
+        // The unlock catch-up and its budget. Present in backups from this version onwards; older
+        // backups leave the shipped defaults (enabled, three reminders, five-minute spacing).
+        dto.unlockReminderEnabled?.let { setUnlockReminderEnabled(it) }
+        dto.unlockReminderMaxPerDose?.let { setUnlockReminderMaxPerDose(it) }
+        dto.unlockReminderMinGapMinutes?.let { setUnlockReminderMinGapMinutes(it) }
+        dto.fullScreenReminderEnabled?.let { setFullScreenReminderEnabled(it) }
     }
 
     private inline fun <reified T : Enum<T>> enumOrDefault(name: String?, fallback: T): T =
@@ -529,5 +541,9 @@ class BackupRepository @Inject constructor(
         idleDeferralEnabled = idleDeferralEnabled,
         idleThresholdMinutes = idleThresholdMinutes,
         deferWhileScreenOff = deferWhileScreenOff,
+        unlockReminderEnabled = unlockReminderEnabled,
+        unlockReminderMaxPerDose = unlockReminderMaxPerDose,
+        unlockReminderMinGapMinutes = unlockReminderMinGapMinutes,
+        fullScreenReminderEnabled = fullScreenReminderEnabled,
     )
 }

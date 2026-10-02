@@ -79,16 +79,6 @@ class SettingsViewModel @Inject constructor(
     private val app: android.app.Application,
 ) : ViewModel() {
 
-    /**
-     * Registers or releases the device-activity receiver to match the preference.
-     *
-     * Routed through the Application (which owns the registration) so exactly one registration
-     * exists for the process, regardless of how many screens toggle the setting.
-     */
-    private fun applyActivityMonitoring(enabled: Boolean) {
-        (app as? com.meditrack.MediTrackApp)?.applyActivityMonitoring(enabled)
-    }
-
     val preferences: StateFlow<UserPreferences> = settingsRepository.preferences
         .stateIn(
             scope = viewModelScope,
@@ -190,7 +180,8 @@ class SettingsViewModel @Inject constructor(
             append("投递 ${report.delivered} 条，")
             append("重排 ${report.armedDoses} 项")
             if (report.corrected > 0) append("，纠正 ${report.corrected} 项异常时间")
-            if (report.deferred > 0) append("，暂缓 ${report.deferred} 项")
+            if (report.deferred > 0) append("，顺延 ${report.deferred} 项免打扰提醒")
+            if (report.unlocked > 0) append("，解锁补提醒 ${report.unlocked} 项未服药")
         }
     }
 
@@ -352,25 +343,80 @@ class SettingsViewModel @Inject constructor(
             .onFailure { _message.value = "无法打开系统设置，请手动在「设置 → 应用管理」中允许自启动" }
     }
 
-    // ------------------------------------------------------------ idle deferral
+    // -------------------------------------------------------- unlock catch-up
 
-    fun setIdleDeferralEnabled(enabled: Boolean) = update {
-        settingsRepository.setIdleDeferralEnabled(enabled)
-        applyActivityMonitoring(enabled)
-        if (enabled) {
-            // Turning it on counts as the user being present.
+    /**
+     * Turns the "speak up when the phone is picked up" path on or off.
+     *
+     * Switching it on immediately runs the pass, because the user has just demonstrated that they are
+     * present - anything already overdue is exactly what they are asking to be told about, and making
+     * them lock and unlock the phone to see it would be silly. Switching it off re-derives the
+     * schedule so nothing that was armed on its behalf is left behind.
+     */
+    fun setUnlockReminderEnabled(value: Boolean) = update {
+        settingsRepository.setUnlockReminderEnabled(value)
+        if (value) {
             reminderEngine.onUserReturn()
         } else {
-            // Leaving withheld reminders stranded would be worse than delivering them late.
-            reminderEngine.reconcile(ReminderTrigger.SETTINGS_CHANGED)
+            rescheduleEverything()
+        }
+        _message.value = if (value) {
+            "已开启解锁补提醒：解锁或回到应用时，会补提醒未吃的药"
+        } else {
+            "已关闭解锁补提醒"
         }
     }
 
-    fun setIdleThresholdMinutes(minutes: Int) =
-        update { settingsRepository.setIdleThresholdMinutes(minutes) }
+    fun setUnlockReminderMaxPerDose(count: Int) = update {
+        settingsRepository.setUnlockReminderMaxPerDose(count)
+    }
 
-    fun setDeferWhileScreenOff(enabled: Boolean) =
-        update { settingsRepository.setDeferWhileScreenOff(enabled) }
+    fun setUnlockReminderMinGapMinutes(minutes: Int) = update {
+        settingsRepository.setUnlockReminderMinGapMinutes(minutes)
+    }
+
+    /**
+     * Whether a reminder may currently take over the screen.
+     *
+     * Android 14+ gates `USE_FULL_SCREEN_INTENT` on the app being a genuine alarm clock, so the
+     * capability is a *user* decision on that screen's system page. Below 14 it is granted with the
+     * permission itself.
+     */
+    fun canUseFullScreenIntent(context: Context): Boolean =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            val manager = context.getSystemService(Context.NOTIFICATION_SERVICE)
+                as? android.app.NotificationManager
+            manager?.canUseFullScreenIntent() ?: false
+        } else {
+            true
+        }
+
+    /**
+     * Turns the full-screen take-over on or off.
+     *
+     * When it is switched on and the system has not granted the capability, the system page that can
+     * grant it is opened straight away. A toggle that silently does nothing is worse than no toggle.
+     */
+    fun setFullScreenReminderEnabled(context: Context, value: Boolean) = update {
+        settingsRepository.setFullScreenReminderEnabled(value)
+        if (value && !canUseFullScreenIntent(context)) {
+            _message.value = "全屏提醒需要系统允许，已为你打开设置页"
+            openFullScreenIntentSettings(context)
+        }
+    }
+
+    /** Opens the system page that grants (or revokes) the full-screen-intent capability. */
+    fun openFullScreenIntentSettings(context: Context) {
+        val target = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            Intent(Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT)
+                .setData(Uri.fromParts("package", context.packageName, null))
+        } else {
+            Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                .putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
+        }
+        runCatching { context.startActivity(target) }
+            .onFailure { _message.value = "无法打开系统设置，请在系统「通知」中允许全屏提醒" }
+    }
 
     // ------------------------------------------------------------------ widget
 

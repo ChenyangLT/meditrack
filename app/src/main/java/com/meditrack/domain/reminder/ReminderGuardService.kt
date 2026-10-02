@@ -68,11 +68,24 @@ class ReminderGuardService : Service() {
     @Inject lateinit var registry: ReminderAlarmRegistry
     @Inject lateinit var notifier: DoseNotifier
     @Inject lateinit var widgetContentBuilder: WidgetContentBuilder
+    @Inject lateinit var presence: UserPresence
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
     /** The widget re-check loop, or null while it is not running. */
     private var widgetTicker: Job? = null
+
+    /** The presence poll loop, or null while it is not running. */
+    private var presenceTicker: Job? = null
+
+    /** Whether the phone was unlocked-and-awake the last time the poller looked. */
+    private var wasPresent = false
+
+    /** When the poller last asked the pipeline to run a presence pass. */
+    private var lastPresencePassAt = 0L
+
+    /** When the poller last looked, so a long freeze can be recognised as "we know nothing". */
+    private var lastPresenceLookAt = 0L
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -89,6 +102,15 @@ class ReminderGuardService : Service() {
         promoteToForeground(getString(R.string.guard_notification_starting))
 
         scope.launch {
+            // Stamp liveness *first*, before any work.
+            //
+            // This ordering is what keeps the pipeline's "ask for the guard when it is missing" rule
+            // from looping: the reconcile pass this service is about to run ends by checking whether
+            // the guard looks stale, and it must see this very check-in when it does. Stamping after
+            // the pass instead leaves the pass looking at an old (or absent) timestamp and asking for
+            // the service again - which is how the app ended up reconciling ~25 times a second.
+            registry.noteGuardAlive(System.currentTimeMillis())
+
             val prefs = runCatching { settingsRepository.current() }.getOrNull()
             if (prefs == null || !prefs.remindersEnabled || !prefs.guardServiceEnabled) {
                 Log.i(TAG, "guard no longer wanted; stopping")
@@ -96,10 +118,10 @@ class ReminderGuardService : Service() {
                 return@launch
             }
             val report = runCatching { engine.reconcile(ReminderTrigger.GUARD_SERVICE) }.getOrNull()
-            registry.noteGuardAlive(System.currentTimeMillis())
             updateNotification(report)
         }
         startWidgetTicker()
+        startPresenceTicker()
         // Recreated after being killed for memory, with a null intent.
         return START_STICKY
     }
@@ -141,6 +163,52 @@ class ReminderGuardService : Service() {
     }
 
     /**
+     * Watches for "the phone has just been unlocked" without relying on a broadcast.
+     *
+     * ## Why a poll is needed at all
+     *
+     * [UserActivityReceiver] is the primary trigger, and on stock Android it is immediate. But
+     * `ACTION_USER_PRESENT` is an *implicit* broadcast delivered to a runtime-registered receiver,
+     * and OEM ROMs are free to withhold those from a background app. Measured on the target device
+     * (vivo, Android 15): the process was alive with this very service in the foreground, the user
+     * unlocked the phone, and the broadcast never arrived - so the documented "解锁时补提醒" would
+     * simply never have happened there.
+     *
+     * This poller closes that hole. It is **edge-triggered**: it acts only when the phone transitions
+     * to "screen on and keyguard dismissed", so holding an unlocked phone produces exactly one pass,
+     * not one per tick. A long gap between looks (the device suspended, and a coroutine `delay` does
+     * not run while suspended) resets the memory, because an observation from before a sleep says
+     * nothing about now.
+     *
+     * The cost is two system-service reads every few seconds while the phone is *awake*, and nothing
+     * at all while it is asleep. No database, no prefs: those only happen on the edge, when there is
+     * genuinely something to announce.
+     */
+    private fun startPresenceTicker() {
+        if (presenceTicker?.isActive == true) return
+        presenceTicker = scope.launch {
+            while (isActive) {
+                delay(PRESENCE_POLL_MILLIS)
+                val now = System.currentTimeMillis()
+                val present = runCatching { presence.isScreenOnAndUnlocked() }.getOrDefault(false)
+
+                // A look much later than expected means the process was frozen or the device slept;
+                // whatever we saw before that is not evidence about the present.
+                if (now - lastPresenceLookAt > PRESENCE_MEMORY_MILLIS) wasPresent = false
+                lastPresenceLookAt = now
+
+                if (present && !wasPresent && now - lastPresencePassAt > PRESENCE_PASS_MIN_GAP_MILLIS) {
+                    lastPresencePassAt = now
+                    Log.i(TAG, "presence edge: the phone was unlocked; running a catch-up pass")
+                    runCatching { engine.onUserReturn() }
+                        .onFailure { Log.w(TAG, "presence catch-up pass failed", it) }
+                }
+                wasPresent = present
+            }
+        }
+    }
+
+    /**
      * The user swiped the app out of recents.
      *
      * On stock Android this is harmless. On several OEM ROMs it is the signal to cancel everything
@@ -159,6 +227,7 @@ class ReminderGuardService : Service() {
         // a stale timestamp as "not running", so the worst case is a delayed answer, never a wrong
         // "protected" one.
         widgetTicker?.cancel()
+        presenceTicker?.cancel()
         CoroutineScope(SupervisorJob() + Dispatchers.IO).launch { registry.markGuardStopped() }
         scope.cancel()
         super.onDestroy()
@@ -248,6 +317,26 @@ class ReminderGuardService : Service() {
 
         /** Mirrors the shipped default, used only when the preference cannot be read. */
         private const val DEFAULT_WIDGET_REFRESH_SECONDS = 30
+
+        /**
+         * How often the unlock detector looks.
+         *
+         * Short, because the whole point is to notice within a moment of the user picking the phone
+         * up; cheap, because a look is two system-service reads and the loop does not run at all while
+         * the device is suspended.
+         */
+        private const val PRESENCE_POLL_MILLIS = 5_000L
+
+        /** A look this much later than the previous one means the device slept; forget what we saw. */
+        private const val PRESENCE_MEMORY_MILLIS = 30_000L
+
+        /**
+         * Floor between two presence-driven passes.
+         *
+         * The broadcast path normally fires first when it works, and this keeps the poller from
+         * running a second, redundant pass seconds later.
+         */
+        private const val PRESENCE_PASS_MIN_GAP_MILLIS = 60_000L
 
         /**
          * Starts the guard if it is wanted.
