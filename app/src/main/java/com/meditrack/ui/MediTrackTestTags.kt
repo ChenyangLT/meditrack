@@ -32,6 +32,14 @@ object MediTrackTestTags {
      */
     const val UNLOCK_REMINDER_SWITCH = "unlock_reminder_switch"
 
+    /**
+     * The "开启免打扰时段" switch.
+     *
+     * Tagged for the same reason as the switches above: the control is a sibling of its label, so it
+     * cannot be reached from the label's text alone.
+     */
+    const val QUIET_HOURS_SWITCH = "quiet_hours_switch"
+
     /** The bottom-bar tab labels, for navigation in tests. */
     const val TAB_TODAY = "tab_today"
     const val TAB_MEDICATIONS = "tab_medications"

@@ -65,7 +65,16 @@ class ReminderPlannerTest {
         localMinuteOfDay: Int = 8 * 60,
         quietHoursEndMillis: Long = 0L,
         trigger: ReminderTrigger = ReminderTrigger.DOSE_ALARM,
-    ) = ReminderContext(at, localMinuteOfDay, quietHoursEndMillis, trigger)
+    ) = ReminderContext(
+        nowMillis = at,
+        localMinuteOfDay = localMinuteOfDay,
+        quietHoursEndMillis = quietHoursEndMillis,
+        // These tests express "inside the window" by supplying an end instant, so mirror it into the
+        // flag that decides silence. Named arguments, so adding a field can never silently move a
+        // value into the wrong slot again.
+        inQuietHours = quietHoursEndMillis > 0L,
+        trigger = trigger,
+    )
 
     private fun decide(
         dose: DoseLog,

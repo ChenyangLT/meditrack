@@ -221,12 +221,22 @@ data class ReminderContext(
     /** Local wall-clock minute, used only for quiet hours and human labels. */
     val localMinuteOfDay: Int,
     /**
-     * When quiet hours end, if the current moment is inside them; otherwise 0.
+     * When quiet hours end, **if the reminder is to be held until then**; otherwise 0.
      *
      * Computed by the caller because resolving it needs a time zone, which the planner must not
-     * touch.
+     * touch. 0 means "do not defer" - either because the moment is outside the window, or because the
+     * user asked for reminders during the window to be posted *silently* rather than held.
      */
     val quietHoursEndMillis: Long = 0L,
+    /**
+     * True when the current minute is inside the user's do-not-disturb window.
+     *
+     * Kept separate from [quietHoursEndMillis] on purpose. "Inside the window" answers *may this make
+     * a sound?* (no), while [quietHoursEndMillis] answers *should it be held until later?* (the user's
+     * choice). Conflating them produced the worst possible behaviour for a do-not-disturb feature:
+     * switching 顺延 off made the app **ring at 3am**, because "not deferring" was read as "not quiet".
+     */
+    val inQuietHours: Boolean = false,
     val trigger: ReminderTrigger,
     /**
      * True for the "用户回到了手机" triggers, which are allowed to re-announce a dose that every other
@@ -491,9 +501,14 @@ object ReminderPlanner {
                 headsUpAppliesTo(dose) &&
                 context.trigger.mayAnnounce
             if (eligible) {
-                if (isQuiet(context)) {
-                    // Hold it: at the end of quiet hours the dose itself will be due anyway.
-                    return ReminderDecision.Deferred(context.quietHoursEndMillis, DeferReason.QUIET_HOURS)
+                if (context.inQuietHours) {
+                    // Hold it: at the end of the window the dose itself will be due anyway. If the
+                    // user asked for silent delivery instead, post it silently now - the heads-up is
+                    // a courtesy, and a courtesy that buzzes at 3am is not one.
+                    if (context.quietHoursEndMillis > 0L) {
+                        return ReminderDecision.Deferred(context.quietHoursEndMillis, DeferReason.QUIET_HOURS)
+                    }
+                    return ReminderDecision.PreRemind(due, due - now, quiet = true)
                 }
                 return ReminderDecision.PreRemind(due, due - now, quiet = false)
             }
@@ -503,10 +518,16 @@ object ReminderPlanner {
         // 7. Inside the fresh window and never announced.
         if (dose.notifiedTimeMillis == null) {
             if (late > window.staleAfterMillis) return ReminderDecision.CatchUp(due, late)
-            if (isQuiet(context)) {
-                // The first announcement is held rather than muted: a reminder nobody sees is a
-                // reminder that did not happen, and quiet hours end at a known instant.
-                return ReminderDecision.Deferred(context.quietHoursEndMillis, DeferReason.QUIET_HOURS)
+            if (context.inQuietHours) {
+                // Inside the window nothing may make a sound. The user then chooses what happens to
+                // the reminder itself: hold it until the window ends (the default, so the dose is not
+                // lost), or post it silently in the shade right away.
+                if (context.quietHoursEndMillis > 0L) {
+                    // Held rather than muted: a reminder nobody sees is a reminder that did not
+                    // happen, and the window ends at a known instant.
+                    return ReminderDecision.Deferred(context.quietHoursEndMillis, DeferReason.QUIET_HOURS)
+                }
+                return ReminderDecision.Remind(due, escalation = 0, lateMillis = late, quiet = true)
             }
             return ReminderDecision.Remind(due, escalation = 0, lateMillis = late, quiet = false)
         }
@@ -525,7 +546,8 @@ object ReminderPlanner {
         return ReminderDecision.Remind(due, dose.escalationCount, late, quiet = isQuiet(context))
     }
 
-    private fun isQuiet(context: ReminderContext): Boolean = context.quietHoursEndMillis > 0L
+    /** Inside the do-not-disturb window: no banner, no tone, no vibration. */
+    private fun isQuiet(context: ReminderContext): Boolean = context.inQuietHours
 
     private fun suppressed(reason: ReminderSuppression) = ReminderDecision.Suppressed(reason)
 

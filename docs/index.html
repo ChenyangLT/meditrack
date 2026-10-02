@@ -153,8 +153,8 @@
   @media (max-width:980px){.card.big{grid-column:span 2}}
   @media (max-width:660px){.card.big{grid-column:span 1}}
 
-  .shotstrip{display:grid;grid-template-columns:repeat(4,1fr);gap:22px;align-items:start}
-  @media (max-width:980px){.shotstrip{grid-template-columns:repeat(2,1fr)}}
+  /* auto-fit: four shots fill a wide screen, five wrap instead of squeezing. */
+  .shotstrip{display:grid;grid-template-columns:repeat(auto-fit,minmax(188px,1fr));gap:22px;align-items:start}
   @media (max-width:560px){.shotstrip{grid-template-columns:1fr}}
   .shotstrip figure{margin:0}
   .shotstrip figcaption{margin-top:12px;font-size:.86rem;color:var(--muted);text-align:center}
@@ -260,6 +260,10 @@
           <p>只要你解锁手机（或重新打开药准时），应用立刻检查所有「已过时间、还没记录」的药——包括已经被判为未服药的——合并成一条提醒告诉你。次数从第一次解锁提醒开始算，可设 1–10 次，两次之间可设最小间隔；点了「稍后」的药在到点前不会打扰你。</p></div>
         </div>
         <div class="step">
+          <div><strong>睡觉时间：免打扰时段</strong>
+          <p>设一个时间段，这段时间内不会有声音、震动，也不会在锁屏上弹出。到点的药不会被丢掉：默认等时段结束再提醒你一次。也可以选择「只在通知栏静默显示一条」。解锁补提醒在时段内同样只留静默通知，并且不消耗提醒次数。</p></div>
+        </div>
+        <div class="step">
           <div><strong>连进程都没了：后台守护与自检心跳</strong>
           <p>后台守护服务让系统不把应用当成可回收的后台进程；每 15 分钟一次的心跳会从数据库重新推导并重排全部提醒，因此任何一个闹钟被系统丢掉，最多只延误一个周期，而不是永远消失。</p></div>
         </div>
@@ -303,6 +307,10 @@
         <figure>
           <div class="phone"><img src="assets/screenshots/reliability.png" alt="提醒可靠性" width="720" height="1600"></div>
           <figcaption>可靠性：自检与决策审计</figcaption>
+        </figure>
+        <figure>
+          <div class="phone"><img src="assets/screenshots/quiet-hours.png" alt="免打扰时段" width="720" height="1600"></div>
+          <figcaption>免打扰：睡觉时间不打扰</figcaption>
         </figure>
       </div>
     </div>
@@ -350,13 +358,14 @@
     <div class="wrap">
       <div class="head reveal">
         <div class="kicker">更新日志</div>
-        <h2>1.5.0</h2>
-        <p>这一版的重点是「没人看见的那一次提醒」，以及在真机上发现的三个缺陷。</p>
+        <h2>1.6.0</h2>
+        <p>新增免打扰时段；上一版的重点是「没人看见的那一次提醒」，以及在真机上发现的几个缺陷。</p>
       </div>
       <div class="grid g2 reveal">
         <div class="card">
           <h3>新增</h3>
           <ul class="changelog">
+            <li><b>免打扰时段</b>：一个时间段内不会有声音、震动，也不会在锁屏上弹出；到点的提醒默认顺延到时段结束后再发，也可以改为只在通知栏静默显示。时段内解锁补提醒同样静默，且不消耗提醒次数。</li>
             <li><b>解锁补提醒</b>：解锁或回到应用时，立刻检查所有已超时且未记录的剂量（含已判未服药、只吃了一半），合并成一条提醒。</li>
             <li><b>提醒次数与间隔</b>：每个药 1–10 次，从第一次解锁提醒开始算；两次之间可设最小间隔；免打扰时段只留静默通知且不消耗次数。</li>
             <li><b>全屏提醒</b>（可选，默认关）：像系统闹钟一样点亮屏幕，Android 14+ 未授权时自动退化为横幅。</li>
@@ -371,6 +380,7 @@
             <li><b>已到点仍显示「未到时间」</b>：剂量行在时间到之前物化后状态不再更新，「未服药」红标因此形同虚设。</li>
             <li><b>卡片「已过 N 分钟」错位与断行</b>：中文可在任意两字间断行，单位词会被从中间撕开。</li>
             <li><b>导入失败会清空数据库</b>：校验发生在清表之后，一个没有药品的备份会先清空再报错。现在校验与清表顺序已修正。</li>
+            <li><b>免打扰时段曾被「顺延」开关反转为响铃</b>：关闭顺延时会被读成「不在免打扰」，于是凌晨照响。现在「是否静默」与「是否顺延」是两个独立的判断。</li>
           </ul>
         </div>
       </div>
@@ -406,7 +416,7 @@
 <footer>
   <div class="wrap fgrid">
     <a class="brand" href="#top" style="font-size:.95rem"><img src="assets/icon.svg" alt="">药准时 · MediTrack</a>
-    <span class="mono muted">v1.5.0</span>
+    <span class="mono muted">v1.6.0</span>
     <nav style="font-size:.9rem">
       <a href="https://github.com/ChenyangLT/meditrack">GitHub</a>
       <a href="https://github.com/ChenyangLT/meditrack/blob/main/LICENSE">MIT License</a>

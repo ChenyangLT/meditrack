@@ -181,11 +181,16 @@ class ReminderEngine @Inject constructor(
         registry.clear()
 
         val window = ReminderPlanner.windowFor(prefs)
+        val localMinute = localMinuteOfDay(now)
+        // Two separate facts, deliberately: whether the window is *now* (nothing may make a sound),
+        // and whether this reminder is to be *held* until it ends (the user's choice).
+        val inQuietHours = prefs.isWithinQuietHours(localMinute)
         val quietEnd = quietHoursEndMillis(prefs, now)
         val reminderContext = ReminderContext(
             nowMillis = now,
-            localMinuteOfDay = localMinuteOfDay(now),
+            localMinuteOfDay = localMinute,
             quietHoursEndMillis = quietEnd,
+            inQuietHours = inQuietHours,
             trigger = trigger,
             // Only "the user came back" carries the catch-up; every other trigger keeps the strict
             // "never repeat what you already said" behaviour it had.
@@ -638,7 +643,9 @@ class ReminderEngine @Inject constructor(
         notifier.showUnlockCatchUp(
             items = announcements.map { it.first to it.second },
             prefs = prefs,
-            quiet = context.quietHoursEndMillis > 0L,
+            // Picking the phone up at 3am must not buzz because the reminder was not *deferred*;
+            // inside the window the catch-up is a silent note that does not spend the budget.
+            quiet = context.inQuietHours,
         )
     }
 
@@ -676,10 +683,12 @@ class ReminderEngine @Inject constructor(
     }
 
     /**
-     * The instant quiet hours end, if [now] is inside them **and** the user asked for deferral.
+     * The instant the do-not-disturb window ends, if [now] is inside it **and** the user asked for
+     * reminders to be held until then; otherwise 0.
      *
      * Returning 0 rather than a sentinel keeps this free of null handling at the call site, and 0 can
-     * never be a legitimate future instant.
+     * never be a legitimate future instant. Note what 0 does *not* mean: it no longer means "not
+     * quiet" - silence inside the window is decided by [UserPreferences.isWithinQuietHours] alone.
      */
     private fun quietHoursEndMillis(prefs: UserPreferences, now: Long): Long {
         if (!prefs.quietHoursEnabled || !prefs.quietHoursDeferEnabled) return 0L

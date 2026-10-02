@@ -70,6 +70,9 @@ class UnlockCatchUpTest {
         nowMillis = at,
         localMinuteOfDay = 9 * 60,
         quietHoursEndMillis = quietHoursEndMillis,
+        // Supplying an end instant is how this file says "inside the window"; keep that reading now
+        // that silence and deferral are decided separately.
+        inQuietHours = quietHoursEndMillis > 0L,
         trigger = trigger,
         unlockCatchUp = trigger == ReminderTrigger.USER_RETURN,
     )

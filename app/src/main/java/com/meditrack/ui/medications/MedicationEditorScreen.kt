@@ -48,10 +48,8 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TimePicker
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.rememberDatePickerState
-import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -78,6 +76,7 @@ import com.meditrack.data.local.entity.RepeatRuleType
 import com.meditrack.core.theme.prefs
 import com.meditrack.ui.components.AdaptiveButtonRow
 import com.meditrack.ui.components.AdaptiveChipRow
+import com.meditrack.ui.components.TimePickerDialog
 
 /**
  * 添加 / 编辑药品.
@@ -436,7 +435,8 @@ private fun ScheduleCard(
     editingSlotKey?.let { key ->
         val slot = form.slots.firstOrNull { it.key == key }
         if (slot != null) {
-            TimeWheelDialog(
+            TimePickerDialog(
+                title = "选择服药时间",
                 initialMinuteOfDay = slot.minuteOfDay,
                 onConfirm = { minute ->
                     onTime(key, minute)
@@ -907,58 +907,6 @@ private fun SwitchRow(
         }
         Switch(checked = checked, onCheckedChange = onCheckedChange)
     }
-}
-
-/**
- * Time picker in a dialog, using Material 3's circular dial.
- *
- * ## Why this replaced a custom wheel
- *
- * A vertically draggable wheel was written for this dialog and removed. It was worse in two ways:
- *
- *  - **It shipped bugs.** The wheel reported the wrong item as selected (the first *visible* row is
- *    not the row inside the highlight band when the list carries content padding), and the follow-up
- *    fix made the hour snap back to its initial value while the user was setting the minute. Custom
- *    scroll arithmetic in a two-way-bound picker is easy to get subtly wrong and hard to see.
- *  - **It was not obviously easier to use.** Two independently scrolling columns invite a drag to
- *    land on the wrong column, and the wheel exposes no typed input.
- *
- * The material dial is framework code with the state handled by [rememberTimePickerState], so hour
- * and minute cannot desynchronise. It also supports tap-to-select and typed entry, which the wheel
- * never did.
- *
- * The chosen time is held in the picker's own state and only committed on 确定, so a mis-tap can be
- * abandoned with 取消.
- */
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun TimeWheelDialog(
-    initialMinuteOfDay: Int,
-    onConfirm: (Int) -> Unit,
-    onDismiss: () -> Unit,
-) {
-    val use24Hour = MaterialTheme.prefs.use24HourFormat
-    val state = rememberTimePickerState(
-        initialHour = DateTimeUtils.hourOf(initialMinuteOfDay),
-        initialMinute = DateTimeUtils.minuteOf(initialMinuteOfDay),
-        is24Hour = use24Hour,
-    )
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("选择服药时间") },
-        text = {
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                TimePicker(state = state)
-            }
-        },
-        confirmButton = {
-            // Read straight from the picker state at confirm time: there is no second copy of the
-            // value that could drift from what the dial is showing.
-            TextButton(onClick = { onConfirm(state.hour * 60 + state.minute) }) { Text("确定") }
-        },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } },
-    )
 }
 
 /**

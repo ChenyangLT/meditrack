@@ -21,6 +21,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Accessibility
 import androidx.compose.material.icons.filled.Alarm
 import androidx.compose.material.icons.filled.BatteryAlert
+import androidx.compose.material.icons.filled.Bedtime
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Download
@@ -54,7 +55,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -75,6 +78,19 @@ import com.meditrack.core.theme.prefs
 import com.meditrack.core.util.DateTimeUtils
 import com.meditrack.data.local.entity.ReminderEvent
 import com.meditrack.domain.reminder.ReminderHealth
+import com.meditrack.ui.components.TimePickerDialog
+
+/**
+ * Ready-made do-not-disturb windows.
+ *
+ * Most people want roughly the same one, and picking two dials to say "the night" is busywork. The
+ * custom dials are still there for anyone who wants a different window.
+ */
+private val QUIET_PRESETS = listOf(
+    21 * 60 to 9 * 60,
+    22 * 60 to 7 * 60,
+    23 * 60 to 6 * 60,
+)
 
 /**
  * 设置.
@@ -102,6 +118,8 @@ fun SettingsScreen(
     val message by viewModel.message.collectAsStateWithLifecycle()
     val lastExport by viewModel.lastExport.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
+    // Which end of the do-not-disturb window the time dialog is editing: 0 = start, 1 = end.
+    var quietEditing by remember { mutableStateOf<Int?>(null) }
 
     // The self-check is a snapshot of system state, so it is read when the screen appears and
     // refreshed on every resume - the same treatment the permission rows already get.
@@ -134,6 +152,26 @@ fun SettingsScreen(
             snackbarHostState.showSnackbar(it)
             viewModel.onMessageShown()
         }
+    }
+
+    quietEditing?.let { which ->
+        TimePickerDialog(
+            title = if (which == 0) "免打扰开始时间" else "免打扰结束时间",
+            initialMinuteOfDay = if (which == 0) {
+                preferences.quietHoursStartMinute
+            } else {
+                preferences.quietHoursEndMinute
+            },
+            onConfirm = { minute ->
+                if (which == 0) {
+                    viewModel.setQuietHours(minute, preferences.quietHoursEndMinute)
+                } else {
+                    viewModel.setQuietHours(preferences.quietHoursStartMinute, minute)
+                }
+                quietEditing = null
+            },
+            onDismiss = { quietEditing = null },
+        )
     }
 
     Scaffold(
@@ -342,12 +380,102 @@ fun SettingsScreen(
                             onSelect = viewModel::setStaleReminderMinutes,
                         )
                     }
-                    SwitchRow(
-                        title = "免打扰时段内顺延提醒",
-                        subtitle = "免打扰时段内到点的提醒等到时段结束再发，而不是静默地发一条没人看得到的通知",
-                        checked = preferences.quietHoursDeferEnabled,
-                        onCheckedChange = viewModel::setQuietHoursDeferEnabled,
+                }
+            }
+
+            // -------------------------------------------------------- quiet hours
+            //
+            // "Don't remind me between these hours." A medication reminder that wakes the household at
+            // 3am gets the app uninstalled, so this matters more than it looks - but so does not losing
+            // the dose, which is why the default is to hold the reminder until the window ends rather
+            // than to drop it.
+            item {
+                SettingsSection("免打扰时段", Icons.Filled.Bedtime) {
+                    Text(
+                        text = "设一个时间段，这段时间内不会有声音、震动，也不会在锁屏上弹出——适合睡觉时间。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    SwitchRow(
+                        title = "开启免打扰时段",
+                        subtitle = "默认关闭。关闭时提醒在任何时间都正常发出",
+                        checked = preferences.quietHoursEnabled,
+                        onCheckedChange = viewModel::setQuietHoursEnabled,
+                        switchModifier = Modifier.testTag(
+                            com.meditrack.ui.MediTrackTestTags.QUIET_HOURS_SWITCH
+                        ),
+                    )
+
+                    if (preferences.quietHoursEnabled) {
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text("时段", style = MaterialTheme.typography.bodyLarge)
+                        Spacer(modifier = Modifier.height(6.dp))
+                        FlowRow(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp),
+                        ) {
+                            FilterChip(
+                                selected = false,
+                                onClick = { quietEditing = 0 },
+                                label = {
+                                    Text(
+                                        "开始 " + DateTimeUtils.formatMinuteOfDay(
+                                            preferences.quietHoursStartMinute,
+                                            preferences.use24HourFormat,
+                                        )
+                                    )
+                                },
+                            )
+                            FilterChip(
+                                selected = false,
+                                onClick = { quietEditing = 1 },
+                                label = {
+                                    Text(
+                                        "结束 " + DateTimeUtils.formatMinuteOfDay(
+                                            preferences.quietHoursEndMinute,
+                                            preferences.use24HourFormat,
+                                        )
+                                    )
+                                },
+                            )
+                        }
+                        Text(
+                            text = "跨午夜也可以：22:00 → 07:00 表示当晚到第二天早上。",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        ChipRow(
+                            title = "常用时段",
+                            options = QUIET_PRESETS,
+                            selected = preferences.quietHoursStartMinute to
+                                preferences.quietHoursEndMinute,
+                            labelOf = { (start, end) ->
+                                DateTimeUtils.formatMinuteOfDay(start, true) + " – " +
+                                    DateTimeUtils.formatMinuteOfDay(end, true)
+                            },
+                            onSelect = { (start, end) -> viewModel.setQuietHours(start, end) },
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        SwitchRow(
+                            title = "时段内到点的提醒，顺延到结束后再发",
+                            subtitle = if (preferences.quietHoursDeferEnabled) {
+                                "开启（推荐）：时段内完全不响，等时段结束再提醒你一次，不会漏药"
+                            } else {
+                                "关闭：时段内到点的提醒只在通知栏静默显示一条，不响不震"
+                            },
+                            checked = preferences.quietHoursDeferEnabled,
+                            onCheckedChange = viewModel::setQuietHoursDeferEnabled,
+                        )
+                        Text(
+                            text = "两种方式在时段内都不会发出声音或震动。解锁补提醒同样只留一条静默通知，" +
+                                "并且不消耗「提醒次数」。",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                 }
             }
 
