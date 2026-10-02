@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Adaptive icon foreground: a "tablet + clock" combination.
+
+  Drawn on the 108dp canvas with the artwork kept inside the central 72dp safe zone so no
+  part of it is clipped by an aggressive launcher mask (circle, squircle, rounded square).
+  Stroke weight is ~2.5dp at 24dp scale, matching the Material Symbols Rounded feel.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Clock face, bottom right, used as the "time" half of the mark. -->
+    <path
+        android:fillColor="#00000000"
+        android:pathData="M68,66m-15,0a15,15 0,1 1,30 0a15,15 0,1 1,-30 0"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="5" />
+    <!-- Clock hands. -->
+    <path
+        android:fillColor="#00000000"
+        android:pathData="M68,57.5L68,66L74.5,69.5"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="5"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+
+    <!-- Capsule (the medication half), rotated 45 degrees, top left. -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M35.5,27.5a13,13 0,0 1,18.4 0a13,13 0,0 1,0 18.4l-14.5,14.5a13,13 0,0 1,-18.4 -18.4z" />
+    <!-- Score line that splits the capsule into two halves. -->
+    <path
+        android:fillColor="#00000000"
+        android:pathData="M27.6,35.4L44.2,52"
+        android:strokeColor="#3DBFA0"
+        android:strokeWidth="4"
+        android:strokeLineCap="round" />
+</vector>

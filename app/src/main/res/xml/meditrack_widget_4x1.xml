@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Widget metadata: the 4x1 footprint.
+
+  ## Sizing
+
+  `minWidth` / `minHeight` use the platform's `70n - 30` formula and describe the SMALLEST size the
+  tile may take, not its default: 4 columns = 250dp, 1 row = 40dp. `targetCellWidth` /
+  `targetCellHeight` give the size the launcher places it at.
+
+  Every footprint in this app declares the same floor - 4 columns by 1 row - and the same
+  `minResize*` values, so **no entry can ever be resized down into a shape its layout cannot draw**.
+  That is the structural fix for the old widget's problem: it defaulted to a 2x2 square, which is
+  narrower than a single row of this list needs, and it had no floor preventing that.
+
+  Horizontal resizing is still free (a wider tile simply has more room for long medication names);
+  the floor only stops it getting *narrower* than four columns.
+
+  `updatePeriodMillis` is 30 minutes - the fastest the platform allows - and is only a floor. The
+  real refresh cadence comes from data writes, alarm delivery and the WorkManager refresher.
+
+  `reconfigurable` is deliberately NOT declared: it advertises a configuration screen in the
+  launcher, and this widget has none. `configuration_optional` is what lets it be placed without one.
+-->
+<appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
+    android:description="@string/widget_description_compact"
+    android:initialLayout="@layout/glance_default_loading_layout"
+    android:minHeight="40dp"
+    android:minWidth="250dp"
+    android:minResizeHeight="40dp"
+    android:minResizeWidth="250dp"
+    android:previewImage="@drawable/ic_widget_preview_4x1"
+    android:resizeMode="horizontal|vertical"
+    android:targetCellHeight="1"
+    android:targetCellWidth="4"
+    android:updatePeriodMillis="1800000"
+    android:widgetCategory="home_screen"
+    android:widgetFeatures="configuration_optional" />

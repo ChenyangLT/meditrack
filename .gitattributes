@@ -1,0 +1,18 @@
+# Store every text file with LF in the repository, so a clone is byte-identical regardless of the
+# contributor's platform. Without this, Windows' core.autocrlf rewrites the whole tree on checkout
+# and every diff shows as changed.
+* text=auto eol=lf
+
+# Genuinely binary formats - never touch their contents.
+*.jar       binary
+*.apk       binary
+*.aab       binary
+*.png       binary
+*.jpg       binary
+*.jpeg      binary
+*.webp      binary
+*.gif       binary
+*.ttf       binary
+*.otf       binary
+*.keystore  binary
+*.jks       binary

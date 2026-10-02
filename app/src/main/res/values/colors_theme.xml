@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Window background used before Compose draws: warm off-white in light mode. -->
+    <color name="window_background">#FFFBF7F2</color>
+</resources>

@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Corner radii: the spec asks for 16-24dp cards. -->
+    <dimen name="card_corner">20dp</dimen>
+    <dimen name="card_corner_large">24dp</dimen>
+    <dimen name="chip_corner">12dp</dimen>
+    <dimen name="sheet_corner">28dp</dimen>
+    <dimen name="widget_corner">20dp</dimen>
+
+    <dimen name="screen_padding">16dp</dimen>
+    <dimen name="card_spacing">12dp</dimen>
+    <!-- Minimum touch target; the accessibility preset raises this in Compose. -->
+    <dimen name="touch_target_min">48dp</dimen>
+    <dimen name="stepper_button">48dp</dimen>
+
+    <dimen name="widget_padding">12dp</dimen>
+    <dimen name="widget_row_height">44dp</dimen>
+</resources>

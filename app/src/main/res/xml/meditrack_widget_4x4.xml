@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Widget metadata: the 4x4 footprint.
+
+  The tallest entry, and the one that shows a whole day. A 4x4 tile has room for five rows at the
+  default font scale - the row count follows the real height rather than the footprint's name, so a
+  taller tile showing more doses is the layout working as intended, not a mismatch.
+
+  See `meditrack_widget_4x1.xml` for why every footprint shares the same 4x1 floor and why
+  `reconfigurable` is not declared.
+-->
+<appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
+    android:description="@string/widget_description_tall"
+    android:initialLayout="@layout/glance_default_loading_layout"
+    android:minHeight="40dp"
+    android:minWidth="250dp"
+    android:minResizeHeight="40dp"
+    android:minResizeWidth="250dp"
+    android:previewImage="@drawable/ic_widget_preview_4x4"
+    android:resizeMode="horizontal|vertical"
+    android:targetCellHeight="4"
+    android:targetCellWidth="4"
+    android:updatePeriodMillis="1800000"
+    android:widgetCategory="home_screen"
+    android:widgetFeatures="configuration_optional" />

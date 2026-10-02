@@ -1,0 +1,281 @@
+package com.meditrack.data.prefs
+
+/** How the app picks between the light and dark colour scheme. */
+enum class ThemeMode(val label: String) {
+    SYSTEM("跟随系统"),
+    LIGHT("浅色"),
+    DARK("深色"),
+}
+
+/** Accent choices offered when Material You dynamic colour is unavailable or switched off. */
+enum class AccentColor(val label: String) {
+    MINT("薄荷绿"),
+    TEAL("青蓝"),
+    LAVENDER("淡紫"),
+}
+
+/**
+ * Text scaling presets. Instead of a raw slider we expose presets, because the accessibility
+ * requirement is "make it readable", not "give me a float".
+ */
+enum class FontScale(val label: String, val scale: Float) {
+    NORMAL("标准", 1.0f),
+    LARGE("大", 1.15f),
+    EXTRA_LARGE("特大", 1.3f),
+    HUGE("超大（适老）", 1.5f),
+}
+
+/** Which day the history calendar starts its week on. */
+enum class WeekStart(val label: String, val isoDay: Int) {
+    MONDAY("周一", 1),
+    SUNDAY("周日", 7),
+    SATURDAY("周六", 6),
+}
+
+/**
+ * Everything the user can configure, in one immutable snapshot.
+ *
+ * The reminder-related fields are **fail-safe defaults**: reminders are on, the alarm is exact,
+ * vibration is on and the missed sweep runs. An elderly user who never opens settings still gets a
+ * reliable reminder.
+ */
+data class UserPreferences(
+    val themeMode: ThemeMode = ThemeMode.SYSTEM,
+    val useDynamicColor: Boolean = true,
+    val accentColor: AccentColor = AccentColor.MINT,
+    val fontScale: FontScale = FontScale.NORMAL,
+    /**
+     * High-contrast / low-vision mode: thicker outlines on status chips and status text, and a
+     * larger minimum touch target. Off by default - it is an opt-in accessibility aid.
+     */
+    val highContrast: Boolean = false,
+    /** "Simplified mode": hides statistics, the calendar and secondary metadata. */
+    val simplifiedMode: Boolean = false,
+    val use24HourFormat: Boolean = true,
+    val weekStart: WeekStart = WeekStart.MONDAY,
+
+    // ------------------------------------------------------------- reminders
+    /** Master switch for every notification the app posts. */
+    val remindersEnabled: Boolean = true,
+    /** Use setExactAndAllowWhileIdle instead of an inexact alarm. */
+    val exactAlarms: Boolean = true,
+    /**
+     * Play the reminder tone.
+     *
+     * **Off by default.** The reminder should tell the user, not startle them or wake a sleeping
+     * household - and a medication reminder fires at a fixed time every day, including at 6am. The
+     * banner, the lock screen entry and the vibration are all kept, so the reminder is still
+     * impossible to miss; only the tone is opt-in.
+     */
+    val soundEnabled: Boolean = false,
+    /** Vibrate on a reminder. */
+    val vibrationEnabled: Boolean = true,
+    /**
+     * Show the reminder as a heads-up banner over whatever is on screen ("顶栏弹出"), and on the
+     * lock screen.
+     *
+     * Implemented by routing the notification to a high-importance channel, because Android freezes
+     * a channel's importance after creation - the only way to let the user change this later is to
+     * own two channels and pick between them.
+     */
+    val headsUpEnabled: Boolean = true,
+    /** Ring even when the ringer is in silent mode. Off by default. */
+    val overrideSilent: Boolean = false,
+    /** Custom notification sound, or null for the system default alarm tone. */
+    val soundUri: String? = null,
+    /** How long the notification waits before it may sound again. */
+    val repeatReminderMinutes: Int = 10,
+    /** Push the reminder again if the dose is still untouched after this many minutes. */
+    val snoozeMinutes: Int = 10,
+    /** Minutes after the planned time before an untouched dose is recorded as "未服药". */
+    val missedGraceMinutes: Int = 30,
+    /** Escalate a still-untouched dose to a missed reminder. */
+    val missedReminderEnabled: Boolean = true,
+    /**
+     * How many notifications one dose may produce in total, **including the first**.
+     *
+     * The old implementation derived this from elapsed time and spent the entire allowance on the
+     * clock rather than on notifications, so the cap silently collapsed to "one reminder". It is now
+     * a stored counter, which is why the number finally means what it says.
+     */
+    val maxEscalationsPerDose: Int = 2,
+    /** Quiet hours - notifications inside the window are silenced (still recorded). */
+    val quietHoursEnabled: Boolean = false,
+    val quietHoursStartMinute: Int = 22 * 60,
+    val quietHoursEndMinute: Int = 7 * 60,
+
+    // ------------------------------------- reminder reliability / humanised timing
+
+    /**
+     * Post a "还有一会儿" heads-up shortly before each dose.
+     *
+     * This is the humanised half of the rewrite. A single alarm at the exact minute asks the user to
+     * be ready at that minute; a heads-up that says "早上 8 点左右该吃药了，还有 15 分钟" lets them
+     * finish what they are doing and get a glass of water first. It is also a second, independent
+     * delivery attempt for the same dose - if the main alarm is dropped by the OS, the user has
+     * still been told.
+     */
+    val preReminderEnabled: Boolean = true,
+    /** How far ahead that heads-up is posted. */
+    val preReminderLeadMinutes: Int = 15,
+    /**
+     * Minutes after the due instant during which a reminder still counts as "on time".
+     *
+     * Nothing in the pipeline compares instants for equality, so an alarm that lands 40 seconds or
+     * 4 minutes late is simply on time rather than "late".
+     */
+    val reminderFreshMinutes: Int = 20,
+    /** Beyond this, a missed trigger degrades to a silent 补记 prompt instead of a banner. */
+    val staleReminderMinutes: Int = 180,
+    /**
+     * How early an alarm may legitimately fire before the pipeline calls it a clock error.
+     *
+     * Error correction: a trigger outside this window is re-armed instead of announced, so a
+     * time-zone change or a stale `PendingIntent` cannot produce a reminder at the wrong hour.
+     */
+    val earlyToleranceMinutes: Int = 5,
+    /** Doses falling due within this many minutes of each other are announced as one digest. */
+    val clusterWindowMinutes: Int = 20,
+    /** Collapse doses that fall due together into a single summary notification. */
+    val digestEnabled: Boolean = true,
+    /** Keep a "已推迟到 …" notification visible while a dose is snoozed. */
+    val snoozeStateNotificationEnabled: Boolean = true,
+    /**
+     * Hold a reminder that falls inside quiet hours and deliver it when they end.
+     *
+     * The old behaviour posted it silently at, say, 23:40 and never mentioned it again - a reminder
+     * nobody sees is a reminder that did not happen. Deferring it to 07:00 is both quieter and more
+     * likely to work.
+     */
+    val quietHoursDeferEnabled: Boolean = true,
+    /** Show the silent "如果已经吃过，请点一下" prompt when a reminder is discovered too late. */
+    val catchUpReminderEnabled: Boolean = true,
+    /**
+     * How often the rolling self-check alarm re-derives the entire schedule.
+     *
+     * This is the single biggest reliability change. The old pipeline re-armed everything once a
+     * day, at midnight, and trusted the OS for the other 23 hours and 59 minutes. A lost
+     * `PendingIntent` - the ordinary failure mode on aggressively managed Chinese OEM ROMs - was
+     * therefore permanent until the user happened to open the app. A short-interval heartbeat turns
+     * any lost alarm into a bounded delay of at most this many minutes.
+     */
+    val heartbeatMinutes: Int = 15,
+    /** Run the independent WorkManager reconciliation path alongside the alarm heartbeat. */
+    val reliabilityWorkerEnabled: Boolean = true,
+    /**
+     * Use alarm-clock-grade alarms (`setAlarmClock`) for dose reminders.
+     *
+     * **On by default.** This is the only alarm class Android exempts from Doze *and* that the
+     * system itself tracks as a user-visible alarm, which is what makes it survive the background
+     * cleanup that silently cancels ordinary alarms on aggressively managed ROMs. A medication
+     * reminder that does not arrive is worthless, so punctuality wins over the small alarm icon this
+     * puts in the status bar - and that icon doubles as visible proof that the reminder is armed.
+     */
+    val alarmClockAlarms: Boolean = true,
+    /**
+     * Keep a foreground service running so the process - and therefore its alarms - survive.
+     *
+     * **On by default.** Every other mechanism in this app is a *scheduled* wake-up, and a scheduled
+     * wake-up is exactly what a force-stop or an OEM "deep clean" cancels: when that happens, the app
+     * receives nothing at all until the user opens it, no matter how many alarms or jobs it had
+     * queued. A running foreground service is the one thing that keeps the app out of the cached
+     * bucket that those cleaners target.
+     *
+     * The cost is one low-priority, silent, ongoing notification. The user can switch it off in
+     * 设置 → 提醒可靠性.
+     */
+    val guardServiceEnabled: Boolean = true,
+
+    // ------------------------------------------------ idle deferral (opt-in)
+
+    /**
+     * Hold reminders back while the phone is sitting unused, and deliver them the moment the user
+     * picks it up again.
+     *
+     * **Off by default, deliberately.** It changes when notifications arrive and relies on reading
+     * device state, so it is an explicit choice rather than something imposed. With it off, every
+     * reminder fires at its scheduled time exactly as before, and no device state is inspected.
+     */
+    val idleDeferralEnabled: Boolean = false,
+    /**
+     * How long the phone must go without user interaction before reminders are held back.
+     *
+     * Only meaningful when [idleDeferralEnabled] is on.
+     */
+    val idleThresholdMinutes: Int = 30,
+    /**
+     * Also hold a reminder back while the screen is simply off, regardless of [idleThresholdMinutes].
+     *
+     * On by default for users who enable the feature: a locked phone in a pocket is the clearest
+     * case of "nobody will see this now".
+     */
+    val deferWhileScreenOff: Boolean = true,
+
+    // --------------------------------------------------------------- widget
+    /** How many rows a 4x2 / 4x4 widget shows. */
+    val widgetItemLimit: Int = WidgetPlannerDefaults.ITEM_LIMIT,
+    /** Refresh cadence for the widget, in minutes (15 or 30). */
+    val widgetRefreshMinutes: Int = 30,
+    /** Show the "+" / "-" buttons on the widget rows. */
+    val widgetQuickActions: Boolean = true,
+    /** Show taken doses at the bottom of the widget list. */
+    val widgetShowCompleted: Boolean = true,
+
+    // ---------------------------------------------------------------- other
+    /** Require biometric/device credential authentication to open the app. */
+    val appLockEnabled: Boolean = false,
+    /** Show the onboarding / permission walkthrough on next launch. */
+    val onboardingCompleted: Boolean = false,
+    /** Show the "多服" confirmation dialog when a dose exceeds its maximum. */
+    val confirmOverDose: Boolean = true,
+    /** How many days back the missed sweep should repair on app start. */
+    val historyBackfillDays: Int = 30,
+) {
+
+    /** True when [minuteOfDay] falls inside the configured quiet hours (handles wrap past midnight). */
+    fun isWithinQuietHours(minuteOfDay: Int): Boolean {
+        if (!quietHoursEnabled) return false
+        val start = quietHoursStartMinute
+        val end = quietHoursEndMinute
+        return if (start <= end) {
+            minuteOfDay in start until end
+        } else {
+            minuteOfDay >= start || minuteOfDay < end
+        }
+    }
+
+    /**
+     * True when a reminder should be withheld rather than posted.
+     *
+     * @param screenInteractive current value of [android.os.PowerManager.isInteractive]
+     * @param lastInteractionMillis last recorded user interaction, or null if never recorded
+     * @param nowMillis injected clock, so the rule is unit testable
+     */
+    fun shouldDeferReminder(
+        screenInteractive: Boolean,
+        lastInteractionMillis: Long?,
+        nowMillis: Long = System.currentTimeMillis(),
+    ): Boolean {
+        if (!idleDeferralEnabled) return false
+        if (!screenInteractive && deferWhileScreenOff) return true
+        val last = lastInteractionMillis ?: return false
+        val idleMillis = nowMillis - last
+        return idleMillis >= idleThresholdMinutes.coerceAtLeast(1) * 60_000L
+    }
+
+    /** Radius used by every rounded card, scaled up in simplified/high-contrast mode. */
+    val cardCornerDp: Int get() = if (simplifiedMode) 24 else 20
+
+    /** Minimum touch target, enlarged for the accessibility preset. */
+    val minTouchTargetDp: Int
+        get() = when {
+            highContrast || fontScale == FontScale.HUGE -> 60
+            fontScale == FontScale.EXTRA_LARGE -> 56
+            else -> 48
+        }
+}
+
+/** Defaults referenced from [UserPreferences] without creating a companion-object cycle. */
+object WidgetPlannerDefaults {
+    const val ITEM_LIMIT = 4
+}

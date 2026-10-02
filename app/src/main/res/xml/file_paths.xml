@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Files the app may hand to another app through FileProvider.
+
+  Exports live in `files/exports/` so the user can find them with a file manager and so the
+  auto-backup rules can exclude them (a backup file inside a backup is noise).
+-->
+<paths>
+    <files-path
+        name="exports"
+        path="exports/" />
+    <cache-path
+        name="shared_cache"
+        path="shared/" />
+</paths>

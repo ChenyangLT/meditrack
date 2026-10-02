@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Dark launcher: swap the widget surface and text colours. -->
+    <color name="widget_surface_light">#FF1C1B1F</color>
+    <color name="widget_surface_dark">#FFFFFBF7</color>
+    <color name="widget_on_surface_light">#FFE6E1E5</color>
+    <color name="widget_on_surface_dark">#FF1B1C1E</color>
+    <color name="widget_on_surface_variant_light">#FFC4C7CE</color>
+    <color name="widget_on_surface_variant_dark">#FF5C5F66</color>
+</resources>

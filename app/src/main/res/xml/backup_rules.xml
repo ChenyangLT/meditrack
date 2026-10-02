@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Auto-backup rules (Android 11 and below).
+
+  The database and the settings are small and contain nothing more sensitive than medication
+  names, and a restored backup is genuinely useful (the user gets their schedule back on a new
+  phone). The user can also export/import explicitly from settings.
+
+  Note: only domains that are actually included are listed. `files/exports` is deliberately not
+  included here, so no exclude rule is needed - an <exclude> for a path outside the included set
+  is rejected by lint as meaningless.
+-->
+<full-backup-content>
+    <include domain="database" path="meditrack.db" />
+    <include domain="sharedpref" path="." />
+    <include domain="file" path="datastore/" />
+</full-backup-content>

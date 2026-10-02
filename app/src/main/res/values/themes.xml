@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources xmlns:tools="http://schemas.android.com/tools">
+    <!--
+      The base theme the Activity is created with. Compose draws everything itself, so this theme
+      only needs to:
+        - keep the system from flashing a white window before the first frame (windowBackground),
+        - let the app draw behind the status bar (edge to edge is enabled in MainActivity),
+        - leave the splash background on brand colour.
+    -->
+    <style name="Theme.MediTrack" parent="Theme.AppCompat.DayNight.NoActionBar">
+        <item name="android:windowBackground">@color/window_background</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowLightStatusBar" tools:targetApi="m">true</item>
+        <item name="android:enforceStatusBarContrast" tools:targetApi="q">false</item>
+        <item name="android:enforceNavigationBarContrast" tools:targetApi="q">false</item>
+    </style>
+</resources>

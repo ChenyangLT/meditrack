@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+      Widget surface colours.
+
+      A widget is rendered by the launcher process, so it must resolve its own light/dark colours
+      instead of inheriting a Compose colour scheme. Two resource names are declared so the widget
+      can pick the right one for the launcher's current configuration:
+        - widget_surface_*     : card background
+        - widget_on_surface_*  : primary text
+        - widget_on_surface_variant_* : secondary text
+    -->
+    <color name="widget_surface_light">#FFFFFBF7</color>
+    <color name="widget_surface_dark">#FF1C1B1F</color>
+    <color name="widget_on_surface_light">#FF1B1C1E</color>
+    <color name="widget_on_surface_dark">#FFE6E1E5</color>
+    <color name="widget_on_surface_variant_light">#FF5C5F66</color>
+    <color name="widget_on_surface_variant_dark">#FFC4C7CE</color>
+</resources>

@@ -1,0 +1,240 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <!-- ============================ Reminders ============================ -->
+    <!-- Exact alarms are the whole point of the app: a dose reminder that drifts by
+         an hour is useless. Android 12+ may revoke this, so the scheduler degrades to
+         setAndAllowWhileIdle and the settings screen offers a repair flow. -->
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+    <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
+    <!-- Survives Doze; required for both exact and inexact while-idle alarms. -->
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <!-- Re-arm every alarm after a reboot. -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <!-- Notification permission (runtime on Android 13+). -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.VIBRATE" />
+    <!-- Ask to be exempted from battery optimisation so long-running schedules survive. -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+    <!--
+      The background guard service.
+
+      Every other wake-up this app schedules is cancellable by a force-stop or an OEM "deep clean",
+      which takes the app's alarms and jobs with it and leaves it receiving nothing until the user
+      opens it. A foreground service is the one mechanism that keeps the process out of the cached
+      bucket those cleaners target.
+
+      FOREGROUND_SERVICE_SPECIAL_USE is the honest Android 14 declaration for this: the service does
+      not play media, track location or sync data - it exists to keep a medication reminder pipeline
+      alive. The matching <property> below is what the platform requires to justify the type.
+    -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <!-- App lock. -->
+    <uses-permission android:name="android.permission.USE_BIOMETRIC" />
+
+    <uses-feature
+        android:name="android.hardware.vibrator"
+        android:required="false" />
+
+    <application
+        android:name=".MediTrackApp"
+        android:allowBackup="true"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:fullBackupContent="@xml/backup_rules"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.MediTrack"
+        tools:targetApi="34">
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:launchMode="singleTop"
+            android:windowSoftInputMode="adjustResize"
+            android:theme="@style/Theme.MediTrack">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+
+            <!-- Deep link used by the widget and the notification to open one dose. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data
+                    android:host="dose"
+                    android:scheme="meditrack" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data
+                    android:host="today"
+                    android:scheme="meditrack" />
+            </intent-filter>
+        </activity>
+
+        <!--
+          Single receiver for every alarm and system event the reminder pipeline reacts to.
+
+          The explicit alarm actions (DOSE_ALARM / PRE_ALARM / SELF_CHECK / NIGHTLY_PASS) are
+          deliberately absent from the filter: they are delivered as explicit PendingIntents that
+          already name this class, so an intent-filter entry would only widen the surface for no
+          benefit.
+
+          LOCKED_BOOT_COMPLETED is deliberately absent too. It cannot be delivered to a receiver that
+          is not directBootAware, and it could not be useful here anyway - the dose rows live in a
+          Room database in credential-encrypted storage, which is unreadable before first unlock.
+          BOOT_COMPLETED plus the 15-minute self-check covers the gap.
+        -->
+        <receiver
+            android:name=".domain.reminder.ReminderReceiver"
+            android:directBootAware="false"
+            android:enabled="true"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+                <action android:name="android.intent.action.TIME_SET" />
+                <action android:name="android.intent.action.TIMEZONE_CHANGED" />
+            </intent-filter>
+        </receiver>
+
+        <!-- Notification action buttons. Not exported: only the system can deliver them. -->
+        <receiver
+            android:name=".domain.reminder.NotificationActionReceiver"
+            android:exported="false" />
+
+        <!--
+          Keeps the process alive so the reminders scheduled in it are actually delivered.
+
+          Not exported: only this app starts it. `stopWithTask="false"` is the important part - the
+          default is true, which would take the service down whenever the user swipes the app out of
+          recents, and on several OEM ROMs that swipe is itself the trigger for cancelling everything
+          the app had scheduled.
+        -->
+        <service
+            android:name=".domain.reminder.ReminderGuardService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse"
+            android:stopWithTask="false">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="medication_reminder_reliability" />
+        </service>
+
+        <!-- "The user picked the phone up" signal, used ONLY by the opt-in idle-deferral feature
+             (设置 → 提醒 → 手机未使用时暂缓提醒, default off).
+
+             These broadcasts cannot be received by a manifest-declared receiver - the platform
+             rejects ACTION_SCREEN_ON / ACTION_USER_PRESENT in a manifest intent-filter - so this
+             component exists only to point at the class and is registered at runtime by
+             MediTrackApp once the user turns the feature on. exported="false" keeps it private to
+             the app; the runtime registration is what actually delivers the broadcasts. -->
+        <receiver
+            android:name=".domain.reminder.UserActivityReceiver"
+            android:exported="false" />
+
+        <!--
+          Home-screen widget.
+
+          Four entries, one per default height, all four columns wide: 4x1, 4x2, 4x3 and 4x4. Each
+          needs its own receiver because an `appwidget-provider` is bound to exactly one ComponentName,
+          and each receiver needs its own `GlanceAppWidget` subclass because Glance resolves the
+          widgets to update from that class.
+
+          `exported="true"` is required so the launcher can bind to them. `WidgetRefresh` updates all
+          four together - a single `updateAll` call would otherwise refresh only the one variant it
+          was called on and leave the others showing yesterday's doses.
+        -->
+        <receiver
+            android:name=".widget.MediTrackWidgetCompactReceiver"
+            android:exported="true"
+            android:label="@string/widget_label_compact">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/meditrack_widget_4x1" />
+        </receiver>
+
+        <receiver
+            android:name=".widget.MediTrackWidgetShortReceiver"
+            android:exported="true"
+            android:label="@string/widget_label_short">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/meditrack_widget_4x2" />
+        </receiver>
+
+        <receiver
+            android:name=".widget.MediTrackWidgetMediumReceiver"
+            android:exported="true"
+            android:label="@string/widget_label_medium">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/meditrack_widget_4x3" />
+        </receiver>
+
+        <receiver
+            android:name=".widget.MediTrackWidgetTallReceiver"
+            android:exported="true"
+            android:label="@string/widget_label_tall">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/meditrack_widget_4x4" />
+        </receiver>
+
+        <!--
+          WorkManager uses on-demand initialization.
+
+          The default initializer is removed here and MediTrackApp.onCreate() calls
+          WorkManager.initialize() itself. Both halves are required - dropping the initializer
+          without initializing crashed the process the first time JobScheduler ran a job
+          ("WorkManager needs to be initialized via a ContentProvider#onCreate() or an
+          Application#onCreate()"), while keeping it alongside a Configuration.Provider makes
+          lintVital fail the release build with
+          "Remove androidx.work.WorkManagerInitializer ... when using on-demand initialization".
+
+          This node uses tools:node="merge" rather than replacing the library's InitializationProvider
+          declaration, so androidx.startup's other initializers still run.
+        -->
+        <provider
+            android:name="androidx.startup.InitializationProvider"
+            android:authorities="${applicationId}.androidx-startup"
+            android:exported="false"
+            tools:node="merge">
+            <meta-data
+                android:name="androidx.work.WorkManagerInitializer"
+                android:value="androidx.startup"
+                tools:node="remove" />
+        </provider>
+
+        <!-- JSON / CSV export written to a user-visible file. -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
+    </application>
+</manifest>

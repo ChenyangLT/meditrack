@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Themed-icon (Material You) variant. The launcher re-tints every opaque pixel, so this is a
+  flat silhouette with no internal colour: the capsule and the clock merge into one shape
+  with the negative space doing the work.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M69,48.5a17.5,17.5 0,1 1,0 35a17.5,17.5 0,1 1,0 -35zM69,56.5a1.6,1.6 0,0 0,-1.6 1.6v7.6c0,0.5 0.2,0.9 0.5,1.2l5.6,4.3a1.6,1.6 0,0 0,2 -2.6l-4.9,-3.8v-6.7a1.6,1.6 0,0 0,-1.6 -1.6z" />
+
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M36.6,24.4a15.5,15.5 0,0 1,21.9 21.9l-15.5,15.5a15.5,15.5 0,0 1,-21.9 -21.9z" />
+</vector>

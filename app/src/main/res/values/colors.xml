@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Brand seed colours. The Compose theme derives the full Material 3 palette from these;
+         the XML values are only used by the launcher icon and the widget preview. -->
+    <color name="brand_mint">#3DBFA0</color>
+    <color name="brand_teal">#2E9BB5</color>
+    <color name="brand_lavender">#8E86D6</color>
+
+    <!-- Semantic dose colours, mirrored in core/theme/Color.kt.
+         Declared here as well so widgets and previews stay in sync. -->
+    <color name="dose_taken">#2E9E5B</color>
+    <color name="dose_partial">#E08A2B</color>
+    <color name="dose_missed">#D3453F</color>
+    <color name="dose_skipped">#8A8F98</color>
+    <color name="dose_upcoming">#3C7FD1</color>
+
+    <!-- The widget's own light/dark surface colours live in colors_widget.xml, which is
+         overridden by values-night for dark launchers. -->
+
+    <!-- Solid fallback behind the adaptive launcher icon, used when a launcher ignores the
+         vector background drawable. -->
+    <color name="ic_launcher_background">#FF3DBFA0</color>
+</resources>

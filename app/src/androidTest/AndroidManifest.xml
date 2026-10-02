@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The instrumented-test manifest.
+
+  Two runners are declared so that a limited run can pick the right one:
+
+    * MediTrackTestRunner      - swaps in HiltTestApplication. Needed by @HiltAndroidTest classes.
+    * MediTrackPlainTestRunner - keeps the production Application, for tests that do not inject.
+
+  Without an explicit android:name the platform only registers the runner named by
+  testInstrumentationRunner in build.gradle.kts, and `am instrument -e class ...` with the other
+  runner fails with "Unable to find instrumentation info".
+
+  The plain runner matters because HiltTestApplication has no component until a HiltAndroidRule
+  builds one, so a real alarm firing during a non-Hilt test crashes the process through
+  ReminderReceiver's injection and aborts the rest of the run.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application>
+        <uses-library android:name="android.test.runner" />
+    </application>
+
+    <instrumentation
+        android:name="com.meditrack.MediTrackPlainTestRunner"
+        android:targetPackage="com.meditrack"
+        android:label="MediTrack plain instrumented tests" />
+</manifest>
