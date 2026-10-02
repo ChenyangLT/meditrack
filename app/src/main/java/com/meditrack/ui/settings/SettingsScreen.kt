@@ -38,6 +38,7 @@ import androidx.compose.material.icons.filled.NotificationsActive
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material.icons.filled.Schedule
+import androidx.compose.material.icons.filled.SystemUpdate
 import androidx.compose.material.icons.filled.Upload
 import androidx.compose.material.icons.filled.Widgets
 import androidx.compose.material3.AlertDialog
@@ -83,11 +84,13 @@ import com.meditrack.data.prefs.ThemeMode
 import com.meditrack.data.prefs.WeekStart
 import com.meditrack.core.theme.prefs
 import com.meditrack.core.util.DateTimeUtils
+import com.meditrack.BuildConfig
 import com.meditrack.data.backup.BackupEntry
 import com.meditrack.data.local.entity.ReminderEvent
 import com.meditrack.domain.reminder.ReminderHealth
 import com.meditrack.ui.MediTrackTestTags
 import com.meditrack.ui.components.TimePickerDialog
+import com.meditrack.ui.update.UpdateDialog
 
 /**
  * Ready-made do-not-disturb windows.
@@ -127,6 +130,7 @@ fun SettingsScreen(
     val message by viewModel.message.collectAsStateWithLifecycle()
     val lastExport by viewModel.lastExport.collectAsStateWithLifecycle()
     val backups by viewModel.backups.collectAsStateWithLifecycle()
+    val updateFound by viewModel.updateFound.collectAsStateWithLifecycle()
     val backupFolder by viewModel.backupFolder.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
     // A listed backup is imported only after an explicit confirmation: it replaces everything.
@@ -176,6 +180,10 @@ fun SettingsScreen(
             snackbarHostState.showSnackbar(it)
             viewModel.onMessageShown()
         }
+    }
+
+    updateFound?.let { info ->
+        UpdateDialog(info = info, onDismiss = { viewModel.dismissUpdate(info) })
     }
 
     pendingImport?.let { entry ->
@@ -926,7 +934,8 @@ fun SettingsScreen(
             item {
                 SettingsSection("数据", Icons.Filled.Download) {
                     Text(
-                        text = "所有数据都保存在本机，不会上传到任何服务器。",
+                        text = "所有数据都保存在本机，不会上传到任何服务器。" +
+                            "全应用只有一处联网：检查新版本（见下方「更新」）。",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -1036,6 +1045,39 @@ fun SettingsScreen(
                             )
                         }
                     }
+                }
+            }
+
+            // ----------------------------------------------------------------- update
+            item {
+                SettingsSection("更新", Icons.Filled.SystemUpdate) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("当前版本", style = MaterialTheme.typography.bodyMedium)
+                            Text(
+                                text = BuildConfig.VERSION_NAME,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(6.dp))
+                    SwitchRow(
+                        title = "自动检查更新",
+                        subtitle = "每 12 小时向 GitHub 查一次最新版本号。" +
+                            "这是全应用唯一的联网行为：不带任何个人信息，也不会上传任何数据",
+                        checked = preferences.autoUpdateCheck,
+                        onCheckedChange = viewModel::setAutoUpdateCheck,
+                    )
+                    ActionRow(
+                        icon = Icons.Filled.SystemUpdate,
+                        title = "立即检查更新",
+                        subtitle = "发现新版本时会提示，但不会强制更新",
+                        onClick = { viewModel.checkForUpdatesNow(BuildConfig.VERSION_NAME) },
+                    )
                 }
             }
 

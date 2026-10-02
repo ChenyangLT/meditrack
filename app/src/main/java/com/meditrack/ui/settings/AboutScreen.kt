@@ -119,8 +119,11 @@ fun AboutScreen(onBack: () -> Unit) {
 
             item {
                 AboutCard(icon = Icons.Filled.Lock, title = "数据与隐私") {
-                    BulletLine("所有药品与服药记录都保存在这台手机本地，应用没有申请网络权限。")
-                    BulletLine("不会上传任何数据，也没有账号体系。")
+                    BulletLine("所有药品与服药记录都保存在这台手机本地，没有账号、没有云同步。")
+                    BulletLine(
+                        "全应用只有一处联网：向 GitHub 查一次最新版本号（可在设置里关闭）。" +
+                            "这个请求不带任何个人信息，也不会上传任何数据。",
+                    )
                     BulletLine("导出备份时会写入应用私有目录，只有你自己通过分享功能才能送出。")
                     BulletLine("卸载应用会删除全部本地数据，建议定期导出备份。")
                 }

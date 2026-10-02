@@ -24,6 +24,7 @@ import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
@@ -39,6 +40,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import com.meditrack.BuildConfig
 import com.meditrack.core.theme.MediTrackTheme
 import com.meditrack.data.prefs.UserPreferences
 import com.meditrack.ui.history.HistoryScreen
@@ -49,6 +51,8 @@ import com.meditrack.ui.settings.OnboardingScreen
 import com.meditrack.ui.settings.SettingsScreen
 import com.meditrack.ui.settings.SettingsViewModel
 import com.meditrack.ui.today.TodayScreen
+import com.meditrack.ui.update.UpdateDialog
+import com.meditrack.ui.update.UpdateViewModel
 
 /**
  * Navigation routes.
@@ -121,8 +125,16 @@ fun MediTrackRoot(
     focusDoseId: Long = -1L,
     focusEpochDay: Long = Long.MIN_VALUE,
     settingsViewModel: SettingsViewModel = hiltViewModel(),
+    updateViewModel: UpdateViewModel = hiltViewModel(),
 ) {
     val preferences by settingsViewModel.preferences.collectAsStateWithLifecycle()
+    val availableUpdate by updateViewModel.available.collectAsStateWithLifecycle()
+
+    // Launched at the root rather than in a screen: the check is the app's business, not a tab's, and
+    // the policy inside UpdateRepository decides whether it actually goes out.
+    LaunchedEffect(Unit) {
+        updateViewModel.checkOnStart(BuildConfig.VERSION_NAME)
+    }
 
     MediTrackTheme(preferences = preferences) {
         MediTrackNavHost(
@@ -135,6 +147,10 @@ fun MediTrackRoot(
                 settingsViewModel.setOnboardingCompleted(true)
             },
         )
+
+        availableUpdate?.let { info ->
+            UpdateDialog(info = info, onDismiss = { updateViewModel.dismiss(info) })
+        }
     }
 }
 

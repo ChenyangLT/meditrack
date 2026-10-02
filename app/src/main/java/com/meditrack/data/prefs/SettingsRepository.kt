@@ -7,6 +7,7 @@ import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.core.intPreferencesKey
+import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
@@ -58,6 +59,11 @@ class SettingsRepository @Inject constructor(
         val QUIET_START = intPreferencesKey("quiet_start")
         val QUIET_END = intPreferencesKey("quiet_end")
         val BACKUP_FOLDER_URI = stringPreferencesKey("backup_folder_uri")
+
+        // The one feature that touches the network. See UpdateChecker for exactly what it sends.
+        val AUTO_UPDATE_CHECK = booleanPreferencesKey("auto_update_check")
+        val LAST_UPDATE_CHECK = longPreferencesKey("last_update_check")
+        val DISMISSED_UPDATE = stringPreferencesKey("dismissed_update_version")
 
         // Retired idle deferral. The keys are still *read* (and written back on import) so an old
         // backup round-trips; nothing makes a decision from them any more.
@@ -142,6 +148,14 @@ class SettingsRepository @Inject constructor(
     suspend fun setMissedReminderEnabled(enabled: Boolean) = edit { it[Keys.MISSED_REMINDER] = enabled }
     suspend fun setMaxEscalations(count: Int) = edit { it[Keys.MAX_ESCALATIONS] = count.coerceIn(0, 10) }
     suspend fun setQuietHoursEnabled(enabled: Boolean) = edit { it[Keys.QUIET_ENABLED] = enabled }
+
+    suspend fun setAutoUpdateCheck(enabled: Boolean) = edit { it[Keys.AUTO_UPDATE_CHECK] = enabled }
+
+    suspend fun setLastUpdateCheckAt(millis: Long) = edit { it[Keys.LAST_UPDATE_CHECK] = millis }
+
+    suspend fun setDismissedUpdateVersion(tag: String?) = edit {
+        if (tag == null) it.remove(Keys.DISMISSED_UPDATE) else it[Keys.DISMISSED_UPDATE] = tag
+    }
 
     /** Points backups at a picked folder, or back at app-private storage when [uri] is null. */
     suspend fun setBackupFolderUri(uri: String?) = edit {
@@ -292,6 +306,9 @@ class SettingsRepository @Inject constructor(
                 this[Keys.SNOOZE_STATE_NOTIFICATION] ?: defaults.snoozeStateNotificationEnabled,
             quietHoursDeferEnabled = this[Keys.QUIET_DEFER] ?: defaults.quietHoursDeferEnabled,
             backupFolderUri = this[Keys.BACKUP_FOLDER_URI] ?: defaults.backupFolderUri,
+            autoUpdateCheck = this[Keys.AUTO_UPDATE_CHECK] ?: defaults.autoUpdateCheck,
+            lastUpdateCheckAtMillis = this[Keys.LAST_UPDATE_CHECK] ?: defaults.lastUpdateCheckAtMillis,
+            dismissedUpdateVersion = this[Keys.DISMISSED_UPDATE] ?: defaults.dismissedUpdateVersion,
             catchUpReminderEnabled = this[Keys.CATCH_UP] ?: defaults.catchUpReminderEnabled,
             heartbeatMinutes = this[Keys.HEARTBEAT_MINUTES] ?: defaults.heartbeatMinutes,
             reliabilityWorkerEnabled =

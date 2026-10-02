@@ -19,7 +19,7 @@ import com.meditrack.data.local.entity.Schedule
 
 /**
  * Offline-first storage. Every read/write the app performs goes through this database; the network
- * is never involved (the app has no INTERNET permission on purpose).
+ * is never involved (the app's only network call is the update check, which never touches data).
  *
  * Schema exports are written to `app/schemas` and checked in, so a future migration can be written
  * and tested without guessing the previous shape.

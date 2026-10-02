@@ -2,6 +2,20 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
+    <!--
+      ============================ Network ============================
+
+      The app has exactly ONE network call: a GET of the public GitHub releases endpoint to find out
+      whether a newer version exists (see data/update/UpdateChecker.kt). It sends no identifiers, no
+      parameters and nothing about the user or their medication; there is no account, no analytics and
+      no cloud sync. Everything else - medications, schedules, dose history, settings, backups - is
+      local and always has been.
+
+      This is the only reason INTERNET appears here, and the check can be turned off in
+      Settings -> 自动检查更新.
+    -->
+    <uses-permission android:name="android.permission.INTERNET" />
+
     <!-- ============================ Reminders ============================ -->
     <!-- Exact alarms are the whole point of the app: a dose reminder that drifts by
          an hour is useless. Android 12+ may revoke this, so the scheduler degrades to

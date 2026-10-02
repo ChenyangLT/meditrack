@@ -21,6 +21,9 @@ import com.meditrack.data.backup.BackupEntry
 import com.meditrack.data.backup.BackupFolder
 import com.meditrack.data.backup.BackupRepository
 import com.meditrack.data.backup.BackupStore
+import com.meditrack.data.update.UpdateCheckResult
+import com.meditrack.data.update.UpdateInfo
+import com.meditrack.data.update.UpdateRepository
 import com.meditrack.data.local.entity.ReminderEvent
 import com.meditrack.domain.reminder.ReminderAudit
 import com.meditrack.domain.reminder.ReminderEngine
@@ -78,6 +81,7 @@ class SettingsViewModel @Inject constructor(
     private val doseRepository: DoseRepository,
     private val backupRepository: BackupRepository,
     private val backupStore: BackupStore,
+    private val updateRepository: UpdateRepository,
     private val app: android.app.Application,
 ) : ViewModel() {
 
@@ -105,6 +109,10 @@ class SettingsViewModel @Inject constructor(
 
     private val _message = MutableStateFlow<String?>(null)
     val message: StateFlow<String?> = _message.asStateFlow()
+
+    /** Set when a user-initiated check finds a newer release, so the screen can show the dialog. */
+    private val _updateFound = MutableStateFlow<UpdateInfo?>(null)
+    val updateFound: StateFlow<UpdateInfo?> = _updateFound.asStateFlow()
 
     private val _lastExport = MutableStateFlow<BackupEntry?>(null)
     /** The most recent successful export, offered to the user as "分享" instead of a bare path. */
@@ -188,6 +196,37 @@ class SettingsViewModel @Inject constructor(
 
     /** A shareable uri for a listed backup, so it can be sent off the device. */
     fun shareUri(entry: BackupEntry): Uri = backupStore.shareUri(entry)
+
+    // ------------------------------------------------------------------ updates
+
+    fun setAutoUpdateCheck(enabled: Boolean) {
+        viewModelScope.launch {
+            settingsRepository.setAutoUpdateCheck(enabled)
+            _message.value = if (enabled) "已开启自动检查更新" else "已关闭自动检查更新"
+        }
+    }
+
+    /**
+     * A check the user asked for.
+     *
+     * [force] means the twelve-hour interval and the "以后再说" memory are both bypassed: asking
+     * explicitly is a request to be told.
+     */
+    fun checkForUpdatesNow(currentVersion: String) {
+        viewModelScope.launch {
+            when (val result = updateRepository.check(currentVersion, force = true)) {
+                is UpdateCheckResult.Available -> _updateFound.value = result.info
+                is UpdateCheckResult.Dismissed -> _updateFound.value = result.info
+                UpdateCheckResult.UpToDate -> _message.value = "已是最新版本（$currentVersion）"
+                UpdateCheckResult.Failed -> _message.value = "检查失败：请确认网络可用"
+            }
+        }
+    }
+
+    fun dismissUpdate(info: UpdateInfo) {
+        viewModelScope.launch { updateRepository.dismiss(info) }
+        _updateFound.value = null
+    }
 
     /** Reads the live permission state; call from `ON_RESUME` so returning from Settings refreshes. */
     fun refreshPermissions(context: Context) {

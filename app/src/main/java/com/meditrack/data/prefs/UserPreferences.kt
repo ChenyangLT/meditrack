@@ -155,6 +155,16 @@ data class UserPreferences(
      * never repoints someone else's folder setting at a folder that does not exist here.
      */
     val backupFolderUri: String? = null,
+    /**
+     * Whether the app may ask GitHub for the latest release version.
+     *
+     * On by default because an app that never tells you it is outdated is worse, but this is the only
+     * switch in the app that governs a network request, so it is explicit and documented.
+     */
+    val autoUpdateCheck: Boolean = true,
+    val lastUpdateCheckAtMillis: Long = 0L,
+    /** A release tag the user waved away; not offered again until something newer appears. */
+    val dismissedUpdateVersion: String? = null,
     /** Show the silent "如果已经吃过，请点一下" prompt when a reminder is discovered too late. */
     val catchUpReminderEnabled: Boolean = true,
     /**
