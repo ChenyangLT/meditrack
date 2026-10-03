@@ -66,4 +66,54 @@ class GitHubReleaseParserTest {
         val info = GitHubReleaseParser.parse("""{"tag_name":"v2.0.0"}""")
         assertThat(info!!.releaseUrl).isEqualTo(GitHubReleaseParser.FALLBACK_URL)
     }
+
+    // ------------------------------------------------- this project's own manifest (primary endpoint)
+
+    private val manifest = """
+        {
+          "schemaVersion": 1,
+          "version": "1.8.1",
+          "tagName": "v1.8.1",
+          "releaseUrl": "https://github.com/ChenyangLT/meditrack/releases/tag/v1.8.1",
+          "apkUrl": "https://github.com/ChenyangLT/meditrack/releases/download/v1.8.1/MediTrack-release-1.8.1.apk",
+          "body": "# 药准时 1.8.1"
+        }
+    """.trimIndent()
+
+    @Test
+    fun `the project's own manifest is read too`() {
+        // The primary endpoint is this project's own site, not the API: api.github.com is unreliable on
+        // some networks while the Pages CDN answers.
+        val info = GitHubReleaseParser.parseManifest(manifest)
+        assertThat(info).isNotNull()
+        requireNotNull(info)
+        assertThat(info.version).isEqualTo("1.8.1")
+        assertThat(info.tagName).isEqualTo("v1.8.1")
+        assertThat(info.apkUrl).endsWith(".apk")
+        assertThat(info.releaseUrl).endsWith("/v1.8.1")
+    }
+
+    @Test
+    fun `a manifest without a tag still names the release`() {
+        val info = GitHubReleaseParser.parseManifest("""{"version":"1.9.0"}""")
+        assertThat(info!!.tagName).isEqualTo("v1.9.0")
+        assertThat(info.releaseUrl).isEqualTo(GitHubReleaseParser.FALLBACK_URL)
+    }
+
+    @Test
+    fun `a manifest with no usable version is not an update`() {
+        assertThat(GitHubReleaseParser.parseManifest("""{"schemaVersion":1}""")).isNull()
+        assertThat(GitHubReleaseParser.parseManifest("""{"version":"  "}""")).isNull()
+        assertThat(GitHubReleaseParser.parseManifest("<html>404</html>")).isNull()
+    }
+
+    @Test
+    fun `the two endpoints describe different versions here, so a stale one is detectable`() {
+        // If both endpoints ever disagreed in shape, the check would flap between "update" and
+        // "latest"; this pins that each parser reads its own version field.
+        val fromApi = GitHubReleaseParser.parse(release)!!
+        val fromManifest = GitHubReleaseParser.parseManifest(manifest)!!
+        assertThat(fromApi.version).isEqualTo("1.8.0")
+        assertThat(fromManifest.version).isEqualTo("1.8.1")
+    }
 }

@@ -1189,6 +1189,9 @@ private fun SwitchRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            // Tapping the label must toggle too: it is what people try first, and half the row being
+            // dead space is a target nobody can see.
+            .clickable(enabled = enabled) { onCheckedChange(!checked) }
             .padding(vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -1202,9 +1205,12 @@ private fun SwitchRow(
         }
         // switchModifier exists so a test can address this specific control by tag. The switch is a
         // sibling of the label, so it cannot be found from the label's text alone.
+        //
+        // onCheckedChange is null on purpose: the row owns the toggle, so a tap on the switch does not
+        // fire both handlers and flip the value twice.
         Switch(
             checked = checked,
-            onCheckedChange = onCheckedChange,
+            onCheckedChange = null,
             enabled = enabled,
             modifier = switchModifier,
         )
@@ -1257,7 +1263,14 @@ private fun NumberOptionRow(
     onSelect: (Int) -> Unit,
 ) = ChipRow(title, options, selected, labelOf, onSelect)
 
-/** A tappable action with an icon and a chevron. */
+/**
+ * A tappable action with an icon and a chevron.
+ *
+ * The click lives on the **row**, not on the chevron. It used to be an [IconButton] wrapping only the
+ * chevron, which made a 96px square the entire target: tapping the row's title - the obvious thing to
+ * do, and what the whole row's appearance invites - did nothing at all. Reported from a real device as
+ * "检查更新点了没反应".
+ */
 @Composable
 private fun ActionRow(
     icon: ImageVector,
@@ -1268,6 +1281,7 @@ private fun ActionRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .clickable(onClick = onClick)
             .padding(vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -1285,13 +1299,11 @@ private fun ActionRow(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
-        IconButton(onClick = onClick) {
-            Icon(
-                imageVector = Icons.Filled.ChevronRight,
-                contentDescription = "打开 $title",
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
+        Icon(
+            imageVector = Icons.Filled.ChevronRight,
+            contentDescription = "打开 $title",
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 }
 

@@ -9,8 +9,13 @@ sealed interface UpdateCheckResult {
     /** Running the newest release. */
     data object UpToDate : UpdateCheckResult
 
-    /** Offline, rate-limited, GitHub down, no releases yet - all the same to the user. */
-    data object Failed : UpdateCheckResult
+    /**
+     * No answer, or an answer that could not be used.
+     *
+     * [reason] is specific on purpose: "it says there is a network problem" is a report nobody can act
+     * on, while "连接超时" versus "请求被拒绝（HTTP 403）" points straight at the cause.
+     */
+    data class Failed(val reason: String) : UpdateCheckResult
 
     /** A newer release exists and has not been waved away. */
     data class Available(val info: UpdateInfo) : UpdateCheckResult
@@ -46,11 +51,17 @@ class UpdateRepository @Inject constructor(
             lastCheckAtMillis = prefs.lastUpdateCheckAtMillis,
             nowMillis = nowMillis,
         )
-        if (!allowed) return UpdateCheckResult.Failed
+        if (!allowed) return UpdateCheckResult.Failed("尚未到检查时间")
 
-        val info = checker.latest(currentVersion)
+        val info = when (val outcome = checker.latest(currentVersion)) {
+            is UpdateOutcome.Failed -> {
+                settings.setLastUpdateCheckAt(nowMillis)
+                return UpdateCheckResult.Failed(outcome.reason)
+            }
+
+            is UpdateOutcome.Found -> outcome.info
+        }
         settings.setLastUpdateCheckAt(nowMillis)
-        if (info == null) return UpdateCheckResult.Failed
         if (!UpdateVersion.isNewer(info.version, currentVersion)) return UpdateCheckResult.UpToDate
 
         return if (UpdatePolicy.shouldInterrupt(force, prefs.dismissedUpdateVersion, info.tagName)) {

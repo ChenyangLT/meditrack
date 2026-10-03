@@ -383,8 +383,9 @@
       <div class="reveal">
         <div class="kicker">隐私</div>
         <h2 style="margin:12px 0 14px">它只为一件事联网</h2>
-        <p class="muted">数据全部留在本机。从 1.8.0 起，为了告诉你有没有新版本，应用会向 GitHub 的公开接口查一次版本号——
-          <span class="mono">api.github.com/repos/ChenyangLT/meditrack/releases/latest</span>。这个请求<b>不带任何个人信息</b>：没有参数、没有请求体、没有标识符，也没有任何关于你和你的药的内容。下载更新由浏览器完成，应用自己不会下载任何东西。</p>
+        <p class="muted">数据全部留在本机。从 1.8.0 起，为了告诉你有没有新版本，应用会依次尝试三个公开地址：自家站点的
+          <span class="mono">version.json</span>（GitHub Pages）、<span class="mono">cdn.jsdelivr.net</span> 上的同一份清单，以及
+          <span class="mono">api.github.com/repos/ChenyangLT/meditrack/releases/latest</span>；拿到一个就不再试下一个。这些请求<b>不带任何个人信息</b>：没有参数、没有请求体、没有标识符，也没有任何关于你和你的药的内容。下载更新由浏览器完成，应用自己不会下载任何东西。</p>
         <p class="muted">不愿意让它联网也没关系：<b>设置 → 更新</b> 里可以关掉自动检查，之后只能手动查。安装包权限可以用 <span class="mono">aapt2 dump permissions</span> 自己核对——除了这一项 <span class="mono">INTERNET</span>，其余全是闹钟、通知、震动一类本地权限。</p>
         <div class="facts" style="margin-top:22px">
           <span>无账号、无登录</span>
@@ -404,14 +405,17 @@
     <div class="wrap">
       <div class="head reveal">
         <div class="kicker">更新日志</div>
-        <h2>1.8.0</h2>
-        <p>新增自动检查更新；上一版把「备份」做成你能看见、能直接用的东西。</p>
+        <h2>1.8.1</h2>
+        <p>修复 1.8.0 的更新检查在正式版上永远报「网络问题」；上一版新增了自动检查更新。</p>
       </div>
       <div class="grid g2 reveal">
         <div class="card">
           <h3>新增</h3>
           <ul class="changelog">
-            <li><b>自动检查更新</b>：应用启动时若距上次检查已超过 12 小时，会向 GitHub 查一次最新版本号；有新版本就弹窗告诉你，<b>但不强制更新</b>——点「以后再说」之后这个版本不再打扰你，直到出现更新的版本。</li>
+            <li><b>更新检查在正式版上永远失败</b>：R8 把 Gson 的 <span class="mono">@SerializedName</span> 注解整个删掉了（运行时没人引用注解，R8 判定它无用），于是解析出来的对象字段全是 null，解析失败被当成网络失败上报。debug 版正常、release 版必失败——现在补了 keep 规则，并加了直接读安装包 dex 的发布闸门。</li>
+            <li><b>设置里点整行没反应</b>：<span class="mono">ActionRow</span> 的点击只挂在右侧小箭头上，点「立即检查更新」的文字区是死区；<span class="mono">SwitchRow</span> 同样只有开关本身可点。现在整行都是可点区域。</li>
+            <li><b>更新检查更稳</b>：依次尝试三个公开地址（自家站点清单 → jsDelivr 镜像 → GitHub API），超时从 10 秒放宽到 15 秒；失败会给出具体原因（连接超时 / HTTP 403 / 无法解析域名 / 返回内容无法解析），而不是笼统的「网络问题」。</li>
+            <li><b>自动检查更新</b>：应用启动时若距上次检查已超过 12 小时，会查一次最新版本号；有新版本就弹窗告诉你，<b>但不强制更新</b>——点「以后再说」之后这个版本不再打扰你，直到出现更新的版本。</li>
             <li><b>手动检查</b>：设置 → 更新 → 「立即检查更新」，随时可查，也会告诉你「已是最新版本」。自动检查可以整个关掉。</li>
             <li><b>备份文件夹可选</b>：备份不再只躺在应用内部（那里文件管理器根本看不到）。现在可以选一个你能打开的文件夹——「下载」、网盘、SD 卡都行，备份直接出现在那里。</li>
             <li><b>应用内自动识别备份</b>：设置里直接列出该文件夹里的全部备份，<b>按时间排序、最新在上面</b>并标注「最新」；点某一条就能导入，不用再走系统文件选择器。</li>
@@ -467,7 +471,7 @@
 <footer>
   <div class="wrap fgrid">
     <a class="brand" href="#top" style="font-size:.95rem"><img src="assets/icon.svg" alt="">药准时 · MediTrack</a>
-    <span class="mono muted">v1.8.0</span>
+    <span class="mono muted">v1.8.1</span>
     <nav style="font-size:.9rem">
       <a href="https://github.com/ChenyangLT/meditrack">GitHub</a>
       <a href="https://github.com/ChenyangLT/meditrack/blob/main/LICENSE">MIT License</a>

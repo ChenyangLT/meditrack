@@ -218,7 +218,7 @@ class SettingsViewModel @Inject constructor(
                 is UpdateCheckResult.Available -> _updateFound.value = result.info
                 is UpdateCheckResult.Dismissed -> _updateFound.value = result.info
                 UpdateCheckResult.UpToDate -> _message.value = "已是最新版本（$currentVersion）"
-                UpdateCheckResult.Failed -> _message.value = "检查失败：请确认网络可用"
+                is UpdateCheckResult.Failed -> _message.value = "检查失败：${result.reason}"
             }
         }
     }

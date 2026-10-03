@@ -24,13 +24,15 @@
 
 数据只写在本机数据库：没有账号、没有云同步、没有统计 SDK。
 
-**全应用只有一处联网。** 从 1.8.0 起，为了告诉你有没有新版本，应用会向 GitHub 的公开接口查一次最新版本号：
+**全应用只有一处联网。** 从 1.8.0 起，为了告诉你有没有新版本，应用会依次尝试下面三个公开地址，**拿到一个就不再试下一个**：
 
 ```
-GET https://api.github.com/repos/ChenyangLT/meditrack/releases/latest
+GET https://chenyanglt.github.io/meditrack/version.json                                    # 自家站点的清单
+GET https://cdn.jsdelivr.net/gh/ChenyangLT/meditrack@main/docs/version.json                # 同一份文件的镜像
+GET https://api.github.com/repos/ChenyangLT/meditrack/releases/latest                      # GitHub 官方接口
 ```
 
-没有参数、没有请求体、没有标识符，也不含任何关于你和你的用药的内容；下载更新由浏览器完成，应用自己不会下载任何东西。不想要它联网就在 **设置 → 更新** 里关掉自动检查。
+三个地址都是公开的 GET：没有参数、没有请求体、没有标识符，也不含任何关于你和你的用药的内容；下载更新由浏览器完成，应用自己不会下载任何东西。不想要它联网就在 **设置 → 更新** 里关掉自动检查。
 
 安装包权限可以用 `aapt2 dump permissions` 自己核对：除更新检查所需的 `INTERNET`，其余全是闹钟、通知、震动、生物识别一类本地权限。
 
@@ -43,11 +45,16 @@ GET https://api.github.com/repos/ChenyangLT/meditrack/releases/latest
 ## 开发
 
 ```powershell
-gradle :app:testDebugUnitTest            # 246 个单元测试
+gradle :app:testDebugUnitTest                # 278 个单元测试
 gradle :app:assembleDebug :app:assembleRelease
-python tools/verify_migration.py         # 数据库迁移：同一库 v1→v4 逐列比对 Room schema
-python tools/verify_dao_sql.py           # 全部 @Query 在真实 schema 上编译 + 行为断言
+python tools/verify_migration.py             # 数据库迁移：同一库 v1→v4 逐列比对 Room schema
+python tools/verify_dao_sql.py              # 全部 @Query 在真实 schema 上编译 + 行为断言
+python tools/verify_release_reflection.py    # release APK 的 dex 里，Gson 注解与 DTO 类名是否都还在
+python tools/update_version_manifest.py      # 发布后更新 docs/version.json（应用检查更新的第一顺位地址）
 ```
+
+> `verify_release_reflection.py` 不是可选项：R8 会删掉只被反射使用的 `@SerializedName`，一旦漏了 keep 规则，
+> 备份与更新检查会在**正式版上静默解析失败**（1.8.0 就栽在这里），而单元测试和 debug 构建都发现不了。
 
 - **架构**：数据库是唯一事实来源，闹钟只是提示；每次触发（闹钟 / 心跳 / 开机 / 启动 / 解锁）都从数据库重算并重排全部提醒，因此任何一条路径丢了闹钟都能自愈
 - **数据库**：Room，当前 schema v4，迁移纯增量、不丢历史
