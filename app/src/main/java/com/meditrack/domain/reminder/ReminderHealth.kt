@@ -216,8 +216,13 @@ class ReminderHealthChecker @Inject constructor(
         return engine.reconcile(ReminderTrigger.USER_REPAIR)
     }
 
-    /** Posts a real notification on the real channel so the user can see and hear it working. */
-    fun sendTestNotification(): Boolean {
+    /**
+     * Posts a real notification on the real channel so the user can see and hear it working.
+     *
+     * Suspending because it reads the user's actual preferences: a test that ignored them could report
+     * success while the real reminder stayed silent.
+     */
+    suspend fun sendTestNotification(): Boolean {
         notifier.showSelfTest()
         return NotificationManagerCompat.from(context).areNotificationsEnabled()
     }

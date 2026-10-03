@@ -17,6 +17,7 @@
 | **历史与统计** | 月历状态点、依从率、连续服药天数、按药筛选 |
 | **桌面小组件** | 单一可缩放条目，按紧急度排序（未服药 &gt; 即将服用 &gt; 稍后 &gt; 已服用），刷新间隔 10 秒–10 分钟 |
 | **适老与无障碍** | 大字（系统 × 应用总字号封顶 1.6×，布局自动换行而不是压缩）、高对比、简化模式、一键适老预设 |
+| **提醒声音** | 五种内置铃声（清铃 / 三音上行 / 柔和木琴 / 双哔 / 渐强钟声）随安装包分发，**由应用用闹钟音频流自己播放**，不依赖任何品牌的系统铃声库；配合震动，vivo / 小米 / OPPO 行为一致 |
 | **更新检查** | 启动时自动向 GitHub 查一次新版本（12 小时一次，可关闭），有新版本弹窗提示但**不强制更新**；也可手动「立即检查更新」 |
 | **数据自主** | 备份文件夹**可选**（「下载」/ 网盘 / SD 卡），应用内直接列出这些备份、**最新在最上面**、点一条即导入；换文件夹时已有备份自动复制过去。另有 CSV 导出可交给医生 |
 
@@ -49,6 +50,7 @@ gradle :app:testDebugUnitTest                # 278 个单元测试
 gradle :app:assembleDebug :app:assembleRelease
 python tools/verify_migration.py             # 数据库迁移：同一库 v1→v4 逐列比对 Room schema
 python tools/verify_dao_sql.py              # 全部 @Query 在真实 schema 上编译 + 行为断言
+python tools/generate_tones.py               # 重新合成五个内置铃声（numpy + ffmpeg，OGG 共约 40 KB）
 python tools/verify_release_reflection.py    # release APK 的 dex 里，Gson 注解与 DTO 类名是否都还在
 python tools/update_version_manifest.py      # 发布后更新 docs/version.json（应用检查更新的第一顺位地址）
 ```

@@ -170,6 +170,11 @@ data class SettingsDto(
     @SerializedName("headsUpEnabled") val headsUpEnabled: Boolean? = null,
     @SerializedName("soundEnabled") val soundEnabled: Boolean? = null,
     @SerializedName("vibrationEnabled") val vibrationEnabled: Boolean? = null,
+    /**
+     * Which bundled tone to use; absent in backups written before the tones shipped, in which case the
+     * device keeps its own choice rather than being reset to the default.
+     */
+    @SerializedName("reminderTone") val reminderTone: String? = null,
     @SerializedName("idleDeferralEnabled") val idleDeferralEnabled: Boolean? = null,
     @SerializedName("idleThresholdMinutes") val idleThresholdMinutes: Int? = null,
     @SerializedName("deferWhileScreenOff") val deferWhileScreenOff: Boolean? = null,
@@ -440,6 +445,13 @@ class BackupRepository @Inject constructor(
         dto.widgetRefreshSeconds?.let { setWidgetRefreshSeconds(it) }
         dto.soundEnabled?.let { setSoundEnabled(it) }
         dto.vibrationEnabled?.let { setVibrationEnabled(it) }
+        dto.reminderTone?.let { name ->
+            // Only accept a tone this build actually has: a backup from a future version must not leave
+            // the app pointing at a name it cannot resolve.
+            if (com.meditrack.domain.reminder.ReminderTone.entries.any { it.name == name }) {
+                setReminderTone(name)
+            }
+        }
         dto.headsUpEnabled?.let { setHeadsUpEnabled(it) }
         dto.idleDeferralEnabled?.let { setIdleDeferralEnabled(it) }
         dto.idleThresholdMinutes?.let { setIdleThresholdMinutes(it) }
@@ -549,6 +561,7 @@ class BackupRepository @Inject constructor(
         headsUpEnabled = headsUpEnabled,
         soundEnabled = soundEnabled,
         vibrationEnabled = vibrationEnabled,
+        reminderTone = reminderTone,
         idleDeferralEnabled = idleDeferralEnabled,
         idleThresholdMinutes = idleThresholdMinutes,
         deferWhileScreenOff = deferWhileScreenOff,

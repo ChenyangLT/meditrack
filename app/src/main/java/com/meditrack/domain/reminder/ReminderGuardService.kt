@@ -91,9 +91,9 @@ class ReminderGuardService : Service() {
 
     override fun onCreate() {
         super.onCreate()
-        // The notification channel has to exist before the first foreground notification, and the
+        // The foreground notification uses the silent guard channel, which the notifier creates in its
+        // own initialisation - so nothing preference-dependent has to be read on this path. The
         // service can be created before the Application has finished starting on some devices.
-        notifier.createChannels()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {

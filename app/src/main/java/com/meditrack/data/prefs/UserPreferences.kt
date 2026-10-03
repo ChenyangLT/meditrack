@@ -156,6 +156,13 @@ data class UserPreferences(
      */
     val backupFolderUri: String? = null,
     /**
+     * Which bundled tone the audible reminder uses (see [com.meditrack.domain.reminder.ReminderTone]).
+     *
+     * Stored as the enum's name rather than a resource id, so the value survives any rebuild that
+     * renumbers resources.
+     */
+    val reminderTone: String = com.meditrack.domain.reminder.ReminderTone.DEFAULT.name,
+    /**
      * Whether the app may ask GitHub for the latest release version.
      *
      * On by default because an app that never tells you it is outdated is worse, but this is the only

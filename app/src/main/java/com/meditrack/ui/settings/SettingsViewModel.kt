@@ -20,7 +20,11 @@ import com.meditrack.core.util.DateTimeUtils
 import com.meditrack.data.backup.BackupEntry
 import com.meditrack.data.backup.BackupFolder
 import com.meditrack.data.backup.BackupRepository
+import android.media.AudioAttributes
+import android.media.MediaPlayer
 import com.meditrack.data.backup.BackupStore
+import com.meditrack.domain.reminder.DoseNotifier
+import com.meditrack.domain.reminder.ReminderTone
 import com.meditrack.data.update.UpdateCheckResult
 import com.meditrack.data.update.UpdateInfo
 import com.meditrack.data.update.UpdateRepository
@@ -82,6 +86,7 @@ class SettingsViewModel @Inject constructor(
     private val backupRepository: BackupRepository,
     private val backupStore: BackupStore,
     private val updateRepository: UpdateRepository,
+    private val notifier: DoseNotifier,
     private val app: android.app.Application,
 ) : ViewModel() {
 
@@ -113,6 +118,9 @@ class SettingsViewModel @Inject constructor(
     /** Set when a user-initiated check finds a newer release, so the screen can show the dialog. */
     private val _updateFound = MutableStateFlow<UpdateInfo?>(null)
     val updateFound: StateFlow<UpdateInfo?> = _updateFound.asStateFlow()
+
+    /** Held so a second 试听 replaces the first instead of playing over it. */
+    private var previewPlayer: MediaPlayer? = null
 
     private val _lastExport = MutableStateFlow<BackupEntry?>(null)
     /** The most recent successful export, offered to the user as "分享" instead of a bare path. */
@@ -282,11 +290,13 @@ class SettingsViewModel @Inject constructor(
 
     /** Posts a real notification so the user can confirm the whole chain works on this device. */
     fun sendTestNotification() {
-        val enabled = healthChecker.sendTestNotification()
-        _message.value = if (enabled) {
-            "已发送测试通知，请查看通知栏"
-        } else {
-            "系统通知权限未开启，无法发送测试通知"
+        viewModelScope.launch {
+            val enabled = runCatching { healthChecker.sendTestNotification() }.getOrDefault(false)
+            _message.value = if (enabled) {
+                "已发送测试通知：使用你当前的铃声与震动设置"
+            } else {
+                "系统通知权限未开启，无法发送测试通知"
+            }
         }
     }
 
@@ -353,8 +363,61 @@ class SettingsViewModel @Inject constructor(
         rescheduleEverything()
     }
 
-    fun setSoundEnabled(value: Boolean) = update { settingsRepository.setSoundEnabled(value) }
-    fun setVibrationEnabled(value: Boolean) = update { settingsRepository.setVibrationEnabled(value) }
+    // Sound, vibration and tone all decide which audible channel is used (its id carries them), so
+    // each one recreates the channels before the next reminder is posted.
+    fun setSoundEnabled(value: Boolean) = update {
+        settingsRepository.setSoundEnabled(value)
+        refreshToneChannels()
+    }
+    fun setVibrationEnabled(value: Boolean) = update {
+        settingsRepository.setVibrationEnabled(value)
+        refreshToneChannels()
+    }
+
+    /** Picks one of the five bundled tones; see [ReminderTone] for why they ship inside the APK. */
+    fun setReminderTone(tone: ReminderTone) = update {
+        settingsRepository.setReminderTone(tone.name)
+        refreshToneChannels()
+    }
+
+    /**
+     * Plays a tone so the user can hear it before choosing.
+     *
+     * Built by hand rather than with MediaPlayer.create, because the audio attributes have to be set
+     * *before* the player is prepared - and they matter: the alarm usage is what makes the preview
+     * audible at the same volume the real reminder will use.
+     */
+    fun previewTone(tone: ReminderTone) {
+        runCatching {
+            previewPlayer?.release()
+            val descriptor = app.resources.openRawResourceFd(tone.rawRes)
+                ?: throw IllegalStateException("找不到音频资源")
+            val attributes = AudioAttributes.Builder()
+                .setUsage(AudioAttributes.USAGE_ALARM)
+                .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                .build()
+            previewPlayer = MediaPlayer().apply {
+                setAudioAttributes(attributes)
+                descriptor.use { setDataSource(it.fileDescriptor, it.startOffset, it.length) }
+                setOnCompletionListener { player ->
+                    player.release()
+                    if (previewPlayer === player) previewPlayer = null
+                }
+                prepare()
+                start()
+            }
+        }.onFailure { _message.value = "无法试听：${it.message ?: "未知错误"}" }
+    }
+
+    /** Stops a preview still playing, so leaving the screen does not leave a tone ringing. */
+    fun stopTonePreview() {
+        previewPlayer?.release()
+        previewPlayer = null
+    }
+
+    private suspend fun refreshToneChannels() {
+        runCatching { notifier.createChannels(settingsRepository.current()) }
+    }
     fun setHeadsUpEnabled(value: Boolean) = update { settingsRepository.setHeadsUpEnabled(value) }
     fun setOverrideSilent(value: Boolean) = update { settingsRepository.setOverrideSilent(value) }
     fun setRepeatMinutes(value: Int) = update {
@@ -662,6 +725,13 @@ class SettingsViewModel @Inject constructor(
     private fun appVersionName(context: Context): String = runCatching {
         context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: ""
     }.getOrDefault("")
+
+    override fun onCleared() {
+        // A preview is a few seconds long; leaving the screen must not leave it playing.
+        previewPlayer?.release()
+        previewPlayer = null
+        super.onCleared()
+    }
 
     companion object {
         /** How many audit entries the self-check screen shows. */

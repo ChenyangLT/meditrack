@@ -60,6 +60,9 @@
     <string name="notification_group_reminders">用药提醒</string>
     <string name="notification_channel_reminder_alert">用药提醒（横幅 + 锁屏 + 响铃）</string>
     <string name="notification_channel_reminder_alert_desc">到点弹出顶部横幅、显示在锁屏上，并播放提醒铃声。需要响铃时在设置里打开「提醒铃声」。</string>
+    <!-- The channel description names the chosen tone, so the system's own notification list shows which
+         of the five tones this channel plays. %1$s is the tone name. -->
+    <string name="notification_channel_reminder_alert_desc_tone">到点弹出顶部横幅、显示在锁屏上，并播放内置铃声「%1$s」。铃声可在应用设置里更换。</string>
     <string name="notification_channel_reminder_vibrate">用药提醒（横幅 + 锁屏 + 震动，不响铃）</string>
     <string name="notification_channel_reminder_vibrate_desc">屏幕顶部弹出横幅、锁屏可见、震动提醒，但不播放铃声。默认使用此项。</string>
     <string name="notification_channel_reminder_quiet">用药提醒（仅通知栏）</string>

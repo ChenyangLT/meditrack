@@ -57,7 +57,9 @@ import javax.inject.Singleton
  * supported way to let the user change banner behaviour later is to own several and route between
  * them. Each channel below therefore corresponds to one *intent*, not to one tone:
  *
- *  - [CHANNEL_REMINDER_ALERT] - banner + alarm tone + vibration.
+ *  - a tone channel (`meditrack_alert_*`, see [AlertChannel]) - banner + bundled tone + vibration.
+ *    Its id varies with the chosen tone and the vibration switch, because a channel's sound is frozen
+ *    at creation.
  *  - [CHANNEL_REMINDER_VIBRATE] - banner + vibration, no tone. The shipped default.
  *  - [CHANNEL_REMINDER_QUIET] - shade only.
  *  - [CHANNEL_REMINDER_SILENT] - shade only and completely silent: quiet hours and catch-up prompts.
@@ -69,37 +71,39 @@ import javax.inject.Singleton
 @Singleton
 class DoseNotifier @Inject constructor(
     @ApplicationContext private val context: Context,
+    private val settingsRepository: com.meditrack.data.prefs.SettingsRepository,
+    private val soundPlayer: ReminderSoundPlayer,
 ) {
 
     private val manager = NotificationManagerCompat.from(context)
 
     init {
-        createChannels()
+        // The static channels do not depend on preferences, so they exist from the first injection: a
+        // notification posted before any preference has been read still lands on a real channel.
+        createStaticChannels()
     }
 
-    /** Creates the channels and their group; safe to call repeatedly (the OS ignores existing ids). */
-    fun createChannels() {
+    /**
+     * Creates every channel, including the audible one, which depends on the chosen tone and the
+     * vibration switch.
+     *
+     * Safe to call repeatedly. The alert channel is deliberately *versioned* by tone (see
+     * [AlertChannel]) rather than updated in place, because Android freezes a channel's sound at
+     * creation and ignores later updates - otherwise picking a different tone would change nothing.
+     */
+    fun createChannels(prefs: UserPreferences) {
+        createStaticChannels()
+        ensureAlertChannel(prefs)
+        pruneStaleAlertChannels(prefs)
+    }
+
+    private fun createStaticChannels() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
         val system = context.getSystemService(NotificationManager::class.java) ?: return
 
         system.createNotificationChannelGroup(
             NotificationChannelGroup(GROUP_REMINDERS, context.getString(R.string.notification_group_reminders))
         )
-
-        val alert = NotificationChannel(
-            CHANNEL_REMINDER_ALERT,
-            context.getString(R.string.notification_channel_reminder_alert),
-            NotificationManager.IMPORTANCE_HIGH,
-        ).apply {
-            description = context.getString(R.string.notification_channel_reminder_alert_desc)
-            setGroup(GROUP_REMINDERS)
-            enableVibration(true)
-            vibrationPattern = VIBRATION_PATTERN
-            enableLights(true)
-            setShowBadge(true)
-            lockscreenVisibility = Notification.VISIBILITY_PUBLIC
-            setSound(defaultAlarmSoundUri(), alarmAudioAttributes())
-        }
 
         val vibrate = NotificationChannel(
             CHANNEL_REMINDER_VIBRATE,
@@ -225,9 +229,68 @@ class DoseNotifier @Inject constructor(
         }
 
         system.createNotificationChannels(
-            listOf(alert, vibrate, quiet, silent, upcoming, snoozeState, missed, status, guard)
+            listOf(vibrate, quiet, silent, upcoming, snoozeState, missed, status, guard)
         )
     }
+
+    /**
+     * Creates the one audible channel the current settings describe, with a tone that ships in the APK.
+     *
+     * This used to point at the phone's own alarm ringtone. On MIUI that URI is under the system's
+     * control and can be replaced or muted by the per-app notification style, leaving a reminder that
+     * vibrates but never rings; a bundled resource cannot be taken away.
+     */
+    private fun ensureAlertChannel(prefs: UserPreferences) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+        val system = context.getSystemService(NotificationManager::class.java) ?: return
+        val tone = ReminderTone.fromName(prefs.reminderTone)
+        val custom = prefs.soundUri?.takeIf { it.isNotBlank() }?.let(Uri::parse)
+
+        val channel = NotificationChannel(
+            alertChannelId(prefs),
+            context.getString(R.string.notification_channel_reminder_alert),
+            NotificationManager.IMPORTANCE_HIGH,
+        ).apply {
+            description = context.getString(
+                R.string.notification_channel_reminder_alert_desc_tone,
+                tone.label,
+            )
+            setGroup(GROUP_REMINDERS)
+            enableVibration(prefs.vibrationEnabled)
+            if (prefs.vibrationEnabled) vibrationPattern = VIBRATION_PATTERN
+            enableLights(true)
+            setShowBadge(true)
+            lockscreenVisibility = Notification.VISIBILITY_PUBLIC
+            // Deliberately silent: the app plays the tone itself. A channel sound is only a *request* to
+            // the vendor's notification manager, and MIUI ignores it outright (measured on a Redmi:
+            // posting on a channel with a bundled-tone URI produced no audio track at all). Playing the
+            // tone from the app is the only path that behaves the same on every brand - and it also
+            // means a channel whose sound a ROM has overridden cannot produce a second, doubling tone.
+            setSound(null, null)
+        }
+        system.createNotificationChannel(channel)
+    }
+
+    /**
+     * Removes alert channels left behind by a previous tone choice.
+     *
+     * Deleting a channel also cancels its notifications, so this runs at start-up and right after the
+     * user changes a setting - never while a reminder is on screen.
+     */
+    private fun pruneStaleAlertChannels(prefs: UserPreferences) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+        val system = context.getSystemService(NotificationManager::class.java) ?: return
+        val keep = alertChannelId(prefs)
+        val existing = system.notificationChannels.map { it.id }
+        AlertChannel.stale(existing, keep).forEach { stale ->
+            Log.i(TAG, "removing stale alert channel $stale")
+            system.deleteNotificationChannel(stale)
+        }
+    }
+
+    /** The alert channel id the current settings imply. See [AlertChannel]. */
+    fun alertChannelId(prefs: UserPreferences): String =
+        AlertChannel.id(ReminderTone.fromName(prefs.reminderTone), prefs.vibrationEnabled, prefs.soundUri)
 
     // ------------------------------------------------------------- reminders
 
@@ -595,10 +658,17 @@ class DoseNotifier @Inject constructor(
      * Deliberately not a fake "test mode" notification: it uses the same channel routing, the same
      * sound and vibration resolution and the same permission path as an actual reminder, because the
      * question the user is asking is exactly "will the real thing look like this?".
+     *
+     * It reads the *user's* preferences. An earlier revision built `UserPreferences()` - the defaults -
+     * so the test always routed to the no-tone channel whatever the user had configured: turning the
+     * tone on, pressing 发送测试通知 and hearing nothing was taken as proof that reminders were broken on
+     * that phone. A self-test that ignores the settings cannot test them.
      */
-    fun showSelfTest() {
-        val prefs = UserPreferences()
-        val notification = NotificationCompat.Builder(context, channelFor(prefs, silent = false))
+    suspend fun showSelfTest() {
+        val prefs = settingsRepository.current()
+        val channel = channelFor(prefs, silent = false)
+        if (AlertChannel.isAlert(channel)) ensureAlertChannel(prefs)
+        val notification = NotificationCompat.Builder(context, channel)
             .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle(context.getString(R.string.self_test_title))
             .setContentText(context.getString(R.string.self_test_body))
@@ -612,6 +682,11 @@ class DoseNotifier @Inject constructor(
             .build()
         runCatching { manager.notify(SELF_TEST_ID, notification) }
             .onFailure { Log.e(TAG, "self-test notify() failed", it) }
+        // The point of the self-test is to answer "will I hear it?", so it plays the tone through the
+        // same path a real reminder uses.
+        if (AlertChannel.isAlert(channel) && (prefs.overrideSilent || !soundPlayer.isSilenced())) {
+            soundPlayer.play(ReminderTone.fromName(prefs.reminderTone), prefs.soundUri)
+        }
     }
 
     /**
@@ -664,13 +739,16 @@ class DoseNotifier @Inject constructor(
 
         val effectiveSilent = silent || !prefs.remindersEnabled
         val resolvedChannel = channel ?: channelFor(prefs, effectiveSilent)
+        // Created on demand as well as at start-up: this is the one call that must never depend on some
+        // earlier code path having run, and createNotificationChannel is idempotent.
+        if (AlertChannel.isAlert(resolvedChannel)) ensureAlertChannel(prefs)
 
         val builder = NotificationCompat.Builder(context, resolvedChannel)
             .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle(title)
             .setContentText(body)
             .setStyle(NotificationCompat.BigTextStyle().bigText(detail))
-            .setPriority(if (resolvedChannel == CHANNEL_REMINDER_ALERT) NotificationCompat.PRIORITY_HIGH else priority)
+            .setPriority(if (AlertChannel.isAlert(resolvedChannel)) NotificationCompat.PRIORITY_HIGH else priority)
             .setCategory(NotificationCompat.CATEGORY_REMINDER)
             // PUBLIC so the detail is readable on the lock screen without unlocking, which is exactly
             // what a medication reminder is for. The content is the user's own prescription.
@@ -686,6 +764,14 @@ class DoseNotifier @Inject constructor(
             .applySoundAndVibration(prefs, effectiveSilent)
 
         groupAlert?.let { builder.setGroupAlertBehavior(it) }
+
+        // The audible reminder: the notification carries the banner and the vibration, the tone comes from
+        // this app. See [ReminderSoundPlayer] for why it is not left to the channel.
+        if (AlertChannel.isAlert(resolvedChannel)) {
+            if (prefs.overrideSilent || !soundPlayer.isSilenced()) {
+                soundPlayer.play(ReminderTone.fromName(prefs.reminderTone), prefs.soundUri)
+            }
+        }
 
         // Only an announcement the user is meant to notice may seize the screen. The advance notice,
         // the quiet-hours note and the silent 补记 record all stay in the shade where they belong.
@@ -731,7 +817,9 @@ class DoseNotifier @Inject constructor(
     private fun channelFor(prefs: UserPreferences, silent: Boolean): String = when {
         silent -> CHANNEL_REMINDER_SILENT
         !prefs.soundEnabled -> if (prefs.headsUpEnabled) CHANNEL_REMINDER_VIBRATE else CHANNEL_REMINDER_QUIET
-        prefs.headsUpEnabled -> CHANNEL_REMINDER_ALERT
+        // The audible channel's id carries the tone and the vibration switch, so its sound is always the
+        // one the user picked.
+        prefs.headsUpEnabled -> alertChannelId(prefs)
         else -> CHANNEL_REMINDER_QUIET
     }
 
@@ -899,7 +987,13 @@ class DoseNotifier @Inject constructor(
         private const val TAG = "DoseNotifier"
 
         /** High-importance: shows a heads-up banner and appears on the lock screen, with a tone. */
-        const val CHANNEL_REMINDER_ALERT = "meditrack_reminder_alert"
+        /**
+     * The pre-tones audible channel.
+     *
+     * Only referenced so it can be deleted on upgrade: it is created with the phone's own alarm
+     * ringtone, which MIUI can silence, so it is replaced by [AlertChannel]-id channels.
+     */
+    const val CHANNEL_REMINDER_ALERT = AlertChannel.LEGACY_ALERT
 
         /** High importance with no tone. The shipped default: be told, not startled. */
         const val CHANNEL_REMINDER_VIBRATE = "meditrack_reminder_vibrate"

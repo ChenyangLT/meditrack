@@ -79,7 +79,12 @@ class MediTrackApp : Application(), Configuration.Provider {
         // The widget's content builder runs outside Hilt's widget entry point in some launchers, so
         // the application context is published for it here.
         com.meditrack.widget.AppContextHolder.install(this)
-        notifier.createChannels()
+        // The audible channel depends on the chosen tone, so it is created once preferences are
+        // readable; the static channels already exist from the notifier's own initialisation.
+        appScope.launch {
+            runCatching { notifier.createChannels(settingsRepository.current()) }
+                .onFailure { Log.w(TAG, "could not create notification channels", it) }
+        }
         registerPresenceReceiver()
         appScope.launch { bootstrap() }
     }

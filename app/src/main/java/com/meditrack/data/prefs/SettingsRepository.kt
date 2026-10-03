@@ -59,6 +59,7 @@ class SettingsRepository @Inject constructor(
         val QUIET_START = intPreferencesKey("quiet_start")
         val QUIET_END = intPreferencesKey("quiet_end")
         val BACKUP_FOLDER_URI = stringPreferencesKey("backup_folder_uri")
+        val REMINDER_TONE = stringPreferencesKey("reminder_tone")
 
         // The one feature that touches the network. See UpdateChecker for exactly what it sends.
         val AUTO_UPDATE_CHECK = booleanPreferencesKey("auto_update_check")
@@ -135,6 +136,8 @@ class SettingsRepository @Inject constructor(
     suspend fun setRemindersEnabled(enabled: Boolean) = edit { it[Keys.REMINDERS_ENABLED] = enabled }
     suspend fun setExactAlarms(enabled: Boolean) = edit { it[Keys.EXACT_ALARMS] = enabled }
     suspend fun setSoundEnabled(enabled: Boolean) = edit { it[Keys.SOUND_ENABLED] = enabled }
+
+    suspend fun setReminderTone(name: String) = edit { it[Keys.REMINDER_TONE] = name }
     suspend fun setVibrationEnabled(enabled: Boolean) = edit { it[Keys.VIBRATION_ENABLED] = enabled }
     suspend fun setHeadsUpEnabled(enabled: Boolean) = edit { it[Keys.HEADS_UP_ENABLED] = enabled }
     suspend fun setOverrideSilent(enabled: Boolean) = edit { it[Keys.OVERRIDE_SILENT] = enabled }
@@ -305,6 +308,7 @@ class SettingsRepository @Inject constructor(
             snoozeStateNotificationEnabled =
                 this[Keys.SNOOZE_STATE_NOTIFICATION] ?: defaults.snoozeStateNotificationEnabled,
             quietHoursDeferEnabled = this[Keys.QUIET_DEFER] ?: defaults.quietHoursDeferEnabled,
+            reminderTone = this[Keys.REMINDER_TONE] ?: defaults.reminderTone,
             backupFolderUri = this[Keys.BACKUP_FOLDER_URI] ?: defaults.backupFolderUri,
             autoUpdateCheck = this[Keys.AUTO_UPDATE_CHECK] ?: defaults.autoUpdateCheck,
             lastUpdateCheckAtMillis = this[Keys.LAST_UPDATE_CHECK] ?: defaults.lastUpdateCheckAtMillis,

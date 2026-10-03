@@ -368,6 +368,7 @@
         <p>没有云同步、没有账号、没有统计。所有数据只写在本机的数据库里，备份是你可以自己拿走的 JSON 文件。</p>
       </div>
       <div class="grid g3 reveal">
+        <div class="card"><div class="ico">♪</div><h3>五种内置铃声</h3><p>铃声随安装包分发，由应用用闹钟音频流自己播放，不依赖任何品牌的系统铃声库；可逐一点选试听，配合震动使用。<b>任何主流品牌都能出声</b>——包括把通知声音交给自家通知管理器接管的小米。</p></div>
         <div class="card"><div class="ico">⌚</div><h3>多个服药时间</h3><p>一个药品可挂任意多个提醒时间，每个时间独立设置重复规则：每天 / 隔天 / 每周指定 / 每 N 天 / 吃 X 天停 Y 天 / 每月几号。</p></div>
         <div class="card"><div class="ico">±</div><h3>数量与库存</h3><p>加号减号步进记录，液体支持 0.5 步长；状态由数量推导（已服 / 部分 / 未服），库存自动扣减并在不足时提醒。</p></div>
         <div class="card"><div class="ico">▤</div><h3>桌面小组件</h3><p>单一可缩放条目，按「即将服用 &gt; 未服药 &gt; 今日稍后 &gt; 已服用」排序，刷新间隔 10 秒到 10 分钟可选。</p></div>
@@ -405,13 +406,16 @@
     <div class="wrap">
       <div class="head reveal">
         <div class="kicker">更新日志</div>
-        <h2>1.8.1</h2>
-        <p>修复 1.8.0 的更新检查在正式版上永远报「网络问题」；上一版新增了自动检查更新。</p>
+        <h2>1.9.0</h2>
+        <p>五种内置铃声 + 震动，由应用自己播放 —— 不再依赖任何品牌的系统铃声；上一版修好了更新检查。</p>
       </div>
       <div class="grid g2 reveal">
         <div class="card">
           <h3>新增</h3>
           <ul class="changelog">
+            <li><b>五种内置铃声</b>：清铃 / 三音上行 / 柔和木琴 / 双哔 / 渐强钟声，随安装包一起分发（共约 40 KB），点一下即可试听。重装、换手机、换品牌，声音都一样。</li>
+            <li><b>铃声改由应用自己播放</b>：原来把系统闹钟铃声交给通知通道，而通道声音只是「请求」—— 在 Redmi（MIUI V140）上实测：通道带铃声、重要性高、震动开，但弹出通知时系统<b>完全没有创建音频轨</b>（<span class="mono">dumpsys media.audio_flinger</span> 显示 0 条活跃轨道）。现在由应用用闹钟音频流自己播放，vivo / 小米 / OPPO / 原生 Android 行为一致，也避免系统再叠一层声音。</li>
+            <li><b>「发送测试通知」真的会响了</b>：它以前用的是<b>默认设置</b>而不是你的设置，所以永远走无铃声通道 —— 开了铃声点测试却没声音，很容易被当成手机不支持。</li>
             <li><b>更新检查在正式版上永远失败</b>：R8 把 Gson 的 <span class="mono">@SerializedName</span> 注解整个删掉了（运行时没人引用注解，R8 判定它无用），于是解析出来的对象字段全是 null，解析失败被当成网络失败上报。debug 版正常、release 版必失败——现在补了 keep 规则，并加了直接读安装包 dex 的发布闸门。</li>
             <li><b>设置里点整行没反应</b>：<span class="mono">ActionRow</span> 的点击只挂在右侧小箭头上，点「立即检查更新」的文字区是死区；<span class="mono">SwitchRow</span> 同样只有开关本身可点。现在整行都是可点区域。</li>
             <li><b>更新检查更稳</b>：依次尝试三个公开地址（自家站点清单 → jsDelivr 镜像 → GitHub API），超时从 10 秒放宽到 15 秒；失败会给出具体原因（连接超时 / HTTP 403 / 无法解析域名 / 返回内容无法解析），而不是笼统的「网络问题」。</li>
@@ -471,7 +475,7 @@
 <footer>
   <div class="wrap fgrid">
     <a class="brand" href="#top" style="font-size:.95rem"><img src="assets/icon.svg" alt="">药准时 · MediTrack</a>
-    <span class="mono muted">v1.8.1</span>
+    <span class="mono muted">v1.9.0</span>
     <nav style="font-size:.9rem">
       <a href="https://github.com/ChenyangLT/meditrack">GitHub</a>
       <a href="https://github.com/ChenyangLT/meditrack/blob/main/LICENSE">MIT License</a>

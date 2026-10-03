@@ -1,6 +1,7 @@
 package com.meditrack.ui.settings
 
 import android.content.Intent
+import android.provider.Settings
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -81,6 +82,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.meditrack.data.prefs.AccentColor
 import com.meditrack.data.prefs.FontScale
 import com.meditrack.data.prefs.ThemeMode
+import com.meditrack.data.prefs.UserPreferences
 import com.meditrack.data.prefs.WeekStart
 import com.meditrack.core.theme.prefs
 import com.meditrack.core.util.DateTimeUtils
@@ -90,6 +92,8 @@ import com.meditrack.data.local.entity.ReminderEvent
 import com.meditrack.domain.reminder.ReminderHealth
 import com.meditrack.ui.MediTrackTestTags
 import com.meditrack.ui.components.TimePickerDialog
+import com.meditrack.domain.reminder.AlertChannel
+import com.meditrack.domain.reminder.ReminderTone
 import com.meditrack.ui.update.UpdateDialog
 
 /**
@@ -329,10 +333,43 @@ fun SettingsScreen(
                     )
                     SwitchRow(
                         title = "提醒铃声",
-                        subtitle = "默认关闭。开启后会播放系统默认闹钟铃声，到点会出声",
+                        subtitle = "默认关闭。开启后播放应用内置铃声（不需要系统铃声，任何品牌手机都能出声）",
                         checked = preferences.soundEnabled,
                         onCheckedChange = viewModel::setSoundEnabled,
                     )
+                    if (preferences.soundEnabled) {
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text("铃声", style = MaterialTheme.typography.bodyLarge)
+                        Text(
+                            text = "五种内置铃声，点一下即可试听；重装或换手机后依然是同一个声音。",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Spacer(modifier = Modifier.height(6.dp))
+                        FlowRow(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp),
+                        ) {
+                            val selectedTone = ReminderTone.fromName(preferences.reminderTone)
+                            ReminderTone.entries.forEach { tone ->
+                                FilterChip(
+                                    selected = tone == selectedTone,
+                                    onClick = {
+                                        viewModel.setReminderTone(tone)
+                                        viewModel.previewTone(tone)
+                                    },
+                                    label = { Text(tone.label, style = MaterialTheme.typography.labelMedium) },
+                                )
+                            }
+                            TextButton(onClick = { viewModel.previewTone(selectedTone) }) {
+                                Text("试听")
+                            }
+                        }
+                        TextButton(
+                            onClick = { openAlertChannelSettings(context, preferences) },
+                        ) { Text("打开系统的通知设置（声音被系统改掉时用这里）") }
+                    }
                     SwitchRow(
                         title = "静音时仍然响铃",
                         subtitle = "把提醒当作闹钟处理，谨慎开启",
@@ -1420,6 +1457,30 @@ internal fun formatBytes(bytes: Long): String = when {
     bytes >= 1024L * 1024L -> String.format("%.1f MB", bytes / 1024.0 / 1024.0)
     bytes >= 1024L -> "${bytes / 1024} KB"
     else -> "$bytes B"
+}
+
+/**
+ * Opens the system page for the app's audible channel.
+ *
+ * The last word on whether a reminder rings belongs to the system: MIUI, ColorOS and others can
+ * override or mute a channel's sound after the app sets it. Sending the user straight to the exact
+ * page (rather than the app's notification list) is the difference between a fixable problem and a
+ * mystery.
+ */
+private fun openAlertChannelSettings(context: android.content.Context, preferences: UserPreferences) {
+    runCatching {
+        val channel = AlertChannel.id(
+            ReminderTone.fromName(preferences.reminderTone),
+            preferences.vibrationEnabled,
+            preferences.soundUri,
+        )
+        context.startActivity(
+            Intent(Settings.ACTION_CHANNEL_NOTIFICATION_SETTINGS)
+                .putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
+                .putExtra(Settings.EXTRA_CHANNEL_ID, channel)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+        )
+    }
 }
 
 /** Hands a backup to the share sheet, wherever it lives. */

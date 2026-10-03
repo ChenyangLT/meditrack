@@ -19,6 +19,7 @@ android {
         // Bumped per delivery so each build can install straight over the last one (both are signed
         // with the same key, so a higher versionCode is what makes that an upgrade rather than a
         // downgrade refusal).
+        //  11 / 1.9.0 - five bundled reminder tones (own audio, no system ringtone), tone-versioned channel
         //  10 / 1.8.1 - update check: own-site manifest first, three endpoints, real failure reasons
         //   9 / 1.8.0 - automatic update check (the app's only network call; prompt, never forced)
         //   8 / 1.7.0 - pickable backup folder, in-app backup list (newest first), automatic migration
@@ -28,8 +29,8 @@ android {
         //   4 / 1.3.0 - background guard service, alarm-clock alarms and lost-alarm evidence
         //   3 / 1.2.0 - widget size family (4x1 / 4x2 / 4x3 / 4x4)
         //   2 / 1.1.0 - reminder pipeline rewrite
-        versionCode = 10
-        versionName = "1.8.1"
+        versionCode = 11
+        versionName = "1.9.0"
 
         // Custom runner that swaps in HiltTestApplication for the instrumented tests.
         testInstrumentationRunner = "com.meditrack.MediTrackTestRunner"
