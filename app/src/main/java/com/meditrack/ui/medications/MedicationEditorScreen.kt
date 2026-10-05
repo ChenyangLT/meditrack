@@ -1,5 +1,7 @@
 package com.meditrack.ui.medications
 
+import android.content.Intent
+import android.net.Uri
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -28,9 +30,14 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.EventAvailable
 import androidx.compose.material.icons.filled.NotificationsActive
 import androidx.compose.material.icons.filled.Schedule
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.AssistChip
+import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DatePicker
@@ -40,6 +47,7 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
@@ -56,9 +64,11 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -67,16 +77,23 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.meditrack.core.util.DateTimeUtils
 import com.meditrack.core.util.MedicationVisuals
+import com.meditrack.core.util.QuantityFormatter
 import com.meditrack.data.local.entity.DosageForm
 import com.meditrack.data.local.entity.DosageUnit
 import com.meditrack.data.local.entity.FoodTiming
 import com.meditrack.data.local.entity.MedicationColorTag
 import com.meditrack.data.local.entity.MedicationIcon
+import com.meditrack.data.local.entity.MedicationReviewConfig
+import com.meditrack.data.local.entity.MedicationReviewCycle
 import com.meditrack.data.local.entity.RepeatRuleType
+import com.meditrack.data.local.entity.ReviewCountMode
+import com.meditrack.data.local.entity.ReviewSearchQuery
 import com.meditrack.core.theme.prefs
+import com.meditrack.domain.review.ReviewProgress
 import com.meditrack.ui.components.AdaptiveButtonRow
 import com.meditrack.ui.components.AdaptiveChipRow
 import com.meditrack.ui.components.TimePickerDialog
+import kotlinx.coroutines.launch
 
 /**
  * 添加 / 编辑药品.
@@ -102,7 +119,10 @@ fun MedicationEditorScreen(
     val form by viewModel.form.collectAsStateWithLifecycle()
     val saved by viewModel.saved.collectAsStateWithLifecycle()
     val error by viewModel.error.collectAsStateWithLifecycle()
+    val reviewProgress by viewModel.reviewProgress.collectAsStateWithLifecycle()
+    val reviewHistory by viewModel.reviewHistory.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
     var confirmDelete by remember { mutableStateOf(false) }
 
     LaunchedEffect(saved) { if (saved) onDone() }
@@ -207,6 +227,20 @@ fun MedicationEditorScreen(
                     onToggleMonthDay = viewModel::toggleSlotMonthDay,
                     onCycle = viewModel::setSlotCycle,
                     onReminderEnabled = viewModel::setSlotReminderEnabled,
+                )
+            }
+            item {
+                ReviewCard(
+                    form = form,
+                    progress = reviewProgress,
+                    history = reviewHistory,
+                    onReminderEnabled = viewModel::setReviewReminderEnabled,
+                    onNote = viewModel::setReviewNote,
+                    onSearchQuery = viewModel::setReviewSearchQuery,
+                    onCountMode = viewModel::setReviewCountMode,
+                    onThreshold = viewModel::setReviewThreshold,
+                    onStartNewRound = viewModel::startNewReviewRound,
+                    onMessage = { text -> scope.launch { snackbarHostState.showSnackbar(text) } },
                 )
             }
             item {
@@ -712,6 +746,374 @@ private fun NumberStepperRow(
         ) { Text("+") }
     }
 }
+
+/**
+ * «复查提醒» - "这个药吃多久要去复查".
+ *
+ * ## Why the section exists at all
+ *
+ * The app knows the schedule and the dose, and it knows nothing about what the prescription is *for*.
+ * "多长时间复查" is a clinical judgement, so the section offers the two honest answers instead of
+ * inventing a third: write down what the doctor said ([MedicationReviewConfig.note]) or look it up
+ * ([ReviewSearchQuery], opened in the user's own browser - nothing about the prescription leaves the
+ * app). Only then does a threshold mean anything, and only then does the reminder count.
+ *
+ * ## Why the progress bar reads the draft, not the database
+ *
+ * The bar is the feedback for the number being typed: a user who enters 30 should see "已 0 / 30 次"
+ * immediately, before saving. That is why the ViewModel pairs the *stored* round's count with the
+ * *draft's* mode and threshold, and why this composable must not re-read the medication row.
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun ReviewCard(
+    form: MedicationForm,
+    progress: ReviewProgress?,
+    history: List<MedicationReviewCycle>,
+    onReminderEnabled: (Boolean) -> Unit,
+    onNote: (String) -> Unit,
+    onSearchQuery: (String) -> Unit,
+    onCountMode: (ReviewCountMode) -> Unit,
+    onThreshold: (String) -> Unit,
+    onStartNewRound: () -> Unit,
+    onMessage: (String) -> Unit,
+) {
+    val context = LocalContext.current
+    val prefs = MaterialTheme.prefs
+    val quantityUnit = form.unit.label
+    val unitLabel = if (form.reviewCountMode == ReviewCountMode.QUANTITY) {
+        quantityUnit
+    } else {
+        form.reviewCountMode.unitShort
+    }
+
+    // The drug name is what makes the query worth searching. Before it is typed, a readable
+    // placeholder is better than a preview that starts with a blank.
+    val medicationName = form.name.ifBlank { "这个药" }
+    val question = form.reviewSearchQuery.ifBlank { ReviewSearchQuery.DEFAULT_QUESTION }
+    val queryText = ReviewSearchQuery.text(medicationName, question, prefs.reviewSearchSuffix)
+    val searchUrl = ReviewSearchQuery.url(
+        engine = prefs.reviewEngine,
+        medicationName = medicationName,
+        question = question,
+        suffix = prefs.reviewSearchSuffix,
+    )
+
+    SectionCard(
+        title = "复查提醒",
+        modifier = Modifier.testTag(com.meditrack.ui.MediTrackTestTags.REVIEW_SECTION),
+    ) {
+        Text(
+            text = "这个药吃多久要去复查，应用没法自己判断——只有开药的医生知道。" +
+                "你可以把医生说的话写下来，也可以先搜一下。",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+
+        // ------------------------------------------------------------- 搜索
+
+        Spacer(modifier = Modifier.height(12.dp))
+        Text("关于搜索", style = MaterialTheme.typography.labelLarge)
+
+        Spacer(modifier = Modifier.height(6.dp))
+        Button(
+            onClick = {
+                // The browser is the one component that answers this question, and it is also the one
+                // this app does not control: a phone without any browser installed (or with the
+                // intent filter removed by its ROM) must produce a sentence, not a crash.
+                val opened = runCatching {
+                    context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(searchUrl)))
+                }.isSuccess
+                if (!opened) onMessage("这台手机没有可用的浏览器")
+            },
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(min = MaterialTheme.prefs.minTouchTargetDp.dp),
+        ) {
+            Icon(
+                imageVector = Icons.Filled.Search,
+                contentDescription = null,
+                modifier = Modifier.size(18.dp),
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            // Deliberately the full query on the button: the user is about to hand a sentence to a
+            // search engine, and "去搜索" alone would not tell them what it is.
+            Text("去搜索：$queryText")
+        }
+        Spacer(modifier = Modifier.height(4.dp))
+        Text(
+            text = "将用「${prefs.reviewEngine.label}」搜索：$queryText",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Text(
+            text = "在浏览器里打开，应用不会上传你的用药信息。",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+
+        Spacer(modifier = Modifier.height(10.dp))
+        OutlinedTextField(
+            value = form.reviewSearchQuery,
+            onValueChange = onSearchQuery,
+            modifier = Modifier.fillMaxWidth(),
+            label = { Text("搜索问句") },
+            placeholder = { Text(ReviewSearchQuery.DEFAULT_QUESTION) },
+            supportingText = {
+                Text("最多 ${MedicationEditorViewModel.MAX_SEARCH_QUERY_LENGTH} 个字，药品名会自动加在最前面。")
+            },
+            singleLine = true,
+            shape = RoundedCornerShape(14.dp),
+        )
+
+        Spacer(modifier = Modifier.height(6.dp))
+        // Wrapping, not a Row: six suggested questions never fit one line at the elderly font scale.
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            ReviewSearchQuery.SUGGESTED.forEach { suggestion ->
+                AssistChip(
+                    onClick = { onSearchQuery(suggestion) },
+                    label = {
+                        Text(suggestion, style = MaterialTheme.typography.labelMedium)
+                    },
+                    leadingIcon = if (suggestion == ReviewSearchQuery.DEFAULT_QUESTION) {
+                        {
+                            Icon(
+                                imageVector = Icons.Filled.Search,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp),
+                            )
+                        }
+                    } else {
+                        null
+                    },
+                )
+            }
+        }
+
+        // ------------------------------------------------------------- 备注
+
+        Spacer(modifier = Modifier.height(14.dp))
+        Text("关于备注", style = MaterialTheme.typography.labelLarge)
+
+        Spacer(modifier = Modifier.height(6.dp))
+        OutlinedTextField(
+            value = form.reviewNote,
+            onValueChange = onNote,
+            modifier = Modifier.fillMaxWidth(),
+            label = { Text("医生怎么说（复查备注）") },
+            placeholder = { Text("例如：3 个月后复查肝功能") },
+            minLines = 3,
+            shape = RoundedCornerShape(14.dp),
+        )
+        Spacer(modifier = Modifier.height(4.dp))
+        Text(
+            text = "这段话会原样显示在红色的复查通知和锁屏上，所以请写得简短、准确，" +
+                "例如复查项目和大概时间。",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+
+        // ---------------------------------------------------------- 计数方式
+
+        AdaptiveChipRow(
+            title = "计数方式",
+            options = ReviewCountMode.entries,
+            selected = form.reviewCountMode,
+            labelOf = { it.label },
+            onSelect = onCountMode,
+        )
+        Text(
+            text = when (form.reviewCountMode) {
+                ReviewCountMode.DOSES -> "只统计真正记录为「已服」的次数；跳过和漏服不算。"
+                ReviewCountMode.DAYS -> "从开始计数那天算起，按自然日计算，第一天算第 1 天。"
+                ReviewCountMode.QUANTITY -> "把每次服用的量累加起来，按${quantityUnit}计算。"
+            },
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+
+        // ------------------------------------------------------------- 阈值
+
+        Spacer(modifier = Modifier.height(10.dp))
+        Text("复查阈值", style = MaterialTheme.typography.labelLarge)
+        Spacer(modifier = Modifier.height(6.dp))
+
+        val presets = when (form.reviewCountMode) {
+            ReviewCountMode.DOSES -> MedicationReviewConfig.DOSE_PRESETS
+            ReviewCountMode.DAYS -> MedicationReviewConfig.DAY_PRESETS
+            // An accumulated amount is expressed in whatever the medication is measured in, so there
+            // is no list of plausible values to offer - the field below is the only input.
+            ReviewCountMode.QUANTITY -> emptyList()
+        }
+        if (presets.isEmpty()) {
+            Text(
+                text = "累计剂量没有常用值，请直接填写。",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(modifier = Modifier.height(6.dp))
+        } else {
+            // AdaptiveButtonRow rather than a Row: seven presets wrap onto a second line instead of
+            // squeezing the last chip down to nothing.
+            AdaptiveButtonRow(modifier = Modifier.fillMaxWidth()) {
+                presets.forEach { preset ->
+                    FilterChip(
+                        selected = form.reviewThresholdValue == preset.toDouble(),
+                        onClick = { onThreshold(preset.toString()) },
+                        label = {
+                            Text("$preset $unitLabel", style = MaterialTheme.typography.labelMedium)
+                        },
+                    )
+                }
+            }
+            Spacer(modifier = Modifier.height(6.dp))
+        }
+
+        OutlinedTextField(
+            value = form.reviewThreshold,
+            onValueChange = onThreshold,
+            modifier = Modifier.fillMaxWidth(),
+            label = { Text("达到多少就提醒复查") },
+            suffix = { Text(unitLabel) },
+            placeholder = { Text("0") },
+            singleLine = true,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+            shape = RoundedCornerShape(14.dp),
+        )
+        Spacer(modifier = Modifier.height(4.dp))
+        Text(
+            text = "填 0 表示不提醒复查。保存后如果改了这个数字，正在进行的这一轮会自动按新数字计算。",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+
+        // ------------------------------------------------------------- 进度
+
+        Spacer(modifier = Modifier.height(12.dp))
+        if (progress != null) {
+            LinearProgressIndicator(
+                progress = { progress.fraction.toFloat() },
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Spacer(modifier = Modifier.height(6.dp))
+            AdaptiveButtonRow(modifier = Modifier.fillMaxWidth()) {
+                Text(
+                    text = progress.progressLabel,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Text(
+                    text = progress.remainingLabel,
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = if (progress.isReached) MaterialTheme.colorScheme.error
+                    else MaterialTheme.colorScheme.primary,
+                )
+            }
+        } else {
+            Text(
+                text = "上面填一个大于 0 的数字后，这里会显示还差多少。",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+
+        // -------------------------------------------------- 到达阈值后的处理
+
+        if (progress?.isReached == true) {
+            Spacer(modifier = Modifier.height(12.dp))
+            // errorContainer, not a plain card: this is the one state in the editor that asks the user
+            // to do something outside the app (go to the doctor), so it has to be the loudest thing here.
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(14.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.errorContainer,
+                ),
+            ) {
+                Column(modifier = Modifier.padding(14.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Filled.Warning,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onErrorContainer,
+                            modifier = Modifier.size(20.dp),
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "该去复查了",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onErrorContainer,
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        text = "已经数到 ${progress.threshold.toInt()} $unitLabel" +
+                            "。复查后点下面的按钮，计数会从 0 重新开始，提醒也会重新打开。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onErrorContainer,
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Button(
+                        onClick = onStartNewRound,
+                        modifier = Modifier.heightIn(min = MaterialTheme.prefs.minTouchTargetDp.dp),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.EventAvailable,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp),
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("开始新一轮")
+                    }
+                }
+            }
+        }
+
+        // ------------------------------------------------------------- 开关
+
+        Spacer(modifier = Modifier.height(6.dp))
+        SwitchRow(
+            title = "开启复查提醒",
+            subtitle = "到时间会发一条醒目的通知。数到的当天会自动关闭，" +
+                "点「开始新一轮」后会重新打开。",
+            checked = form.reviewReminderEnabled,
+            onCheckedChange = onReminderEnabled,
+        )
+
+        // ------------------------------------------------------------- 上一轮
+
+        history.firstOrNull()?.let { last ->
+            Spacer(modifier = Modifier.height(6.dp))
+            Text(
+                text = "上一轮：第 ${last.round} 轮，" +
+                    "${last.acknowledgedEpochDay?.let { DateTimeUtils.formatDate(it) } ?: "已结束"} 复查，" +
+                    "共 ${startedRoundCountLabel(last, quantityUnit)}",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+
+        Spacer(modifier = Modifier.height(6.dp))
+        Text(
+            text = "还没保存的内容，会跟这个药品一起保存。",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+/** "60 次" / "30 天" / "240 ml" - how much a finished round counted. */
+private fun startedRoundCountLabel(cycle: MedicationReviewCycle, quantityUnit: String): String =
+    when (cycle.countMode) {
+        ReviewCountMode.DOSES -> "${cycle.count.toInt()} 次"
+        ReviewCountMode.DAYS -> "${cycle.count.toInt()} 天"
+        ReviewCountMode.QUANTITY -> "${QuantityFormatter.format(cycle.count)} $quantityUnit"
+    }
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable

@@ -162,6 +162,66 @@ data class UserPreferences(
      * renumbers resources.
      */
     val reminderTone: String = com.meditrack.domain.reminder.ReminderTone.DEFAULT.name,
+
+    // ------------------------------------------------------- ring (持续响铃)
+
+    /**
+     * What the reminder does after its first announcement.
+     *
+     * **On by default** ("keep ringing until you answer"), because a medication reminder the user can
+     * sleep through is not doing its job. Users who find it too much can pick 只响一次, which restores
+     * the pre-2.0 behaviour exactly.
+     */
+    val ringMode: String = com.meditrack.domain.reminder.ReminderRingMode.DEFAULT.name,
+    /**
+     * Safety cap on a continuous ring, in minutes.
+     *
+     * Without this, "一直响" on a phone left in a drawer would ring until the battery died - and an app
+     * that does that gets uninstalled, taking the reminders with it. The notification stays put after
+     * the cap, so nothing is lost but the noise.
+     */
+    val ringMaxMinutes: Int = 5,
+    /** How many times [com.meditrack.domain.reminder.ReminderRingMode.FIXED_TIMES] chimes. */
+    val ringTimes: Int = 3,
+    /** Seconds of silence between two chimes. */
+    val ringIntervalSeconds: Int = com.meditrack.domain.reminder.RingPolicy.DEFAULT_INTERVAL_SECONDS,
+
+    /**
+     * The [com.meditrack.data.local.entity.RingClip] row id chosen as the reminder sound, if any.
+     *
+     * A row id rather than a uri: the clip's audio lives in app-private storage and deleting the row
+     * is what makes the file a cache-clear candidate, so the id is the single thing that has to stay
+     * consistent. Null means "use [reminderTone]".
+     */
+    val ringClipId: Long? = null,
+
+    // --------------------------------------------- «复查提醒» / follow-up review
+
+    /**
+     * Show a red, must-acknowledge reminder once a medication reaches its review threshold.
+     *
+     * **On by default**, but inert until the user actually configures a threshold on a medication:
+     * nothing here can fire for a prescription nobody described.
+     */
+    val reviewReminderEnabled: Boolean = true,
+    /**
+     * Days before the threshold at which the gentle "还有几次就该复查了" heads-up appears.
+     *
+     * A review is a thing you have to book an appointment for, so being told only on the day is
+     * useless. 0 disables the advance notice.
+     */
+    val reviewAdvanceNotice: Int = 3,
+    /**
+     * Reach 复查 and the app opens this search for you, instead of the built-in knowledge base.
+     *
+     * The question "这个药吃多久要去复查" has no honest offline answer - it depends on the drug, the
+     * indication and the patient - so the two offered answers are "ask your doctor and write it down"
+     * (the note, below) and "look it up". Baidu is the default because that is what the user asked
+     * for; Bing is offered because it is the same feature with a different opinion.
+     */
+    val reviewSearchEngine: String = com.meditrack.data.local.entity.ReviewSearchEngine.DEFAULT.name,
+    /** Extra words appended to the search query, so a user can pin down their own situation. */
+    val reviewSearchSuffix: String = "",
     /**
      * Whether the app may ask GitHub for the latest release version.
      *
@@ -298,6 +358,16 @@ data class UserPreferences(
     val confirmOverDose: Boolean = true,
     /** How many days back the missed sweep should repair on app start. */
     val historyBackfillDays: Int = 30,
+    /**
+     * Whether the first-run 《用户协议》 and 《使用说明》 gate has been passed.
+     *
+     * Deliberately its own flag rather than reusing [onboardingCompleted], which gates the *permission*
+     * walkthrough: the two are shown once each, they are allowed to be dismissed independently, and a
+     * user who skipped the permissions should not be asked to sign the agreement again on the next
+     * launch. Installing this version over an older one sets it only after it has been shown once, so
+     * an existing user sees it exactly one time and never again - including after later updates.
+     */
+    val agreementAcceptedVersion: Int = 0,
 ) {
 
     /** True when [minuteOfDay] falls inside the configured quiet hours (handles wrap past midnight). */
@@ -315,6 +385,27 @@ data class UserPreferences(
     /** Radius used by every rounded card, scaled up in simplified/high-contrast mode. */
     val cardCornerDp: Int get() = if (simplifiedMode) 24 else 20
 
+    /**
+     * The ringing behaviour these settings describe, as a pure value.
+     *
+     * A computed property rather than a stored field so that changing one slider cannot leave the
+     * three of them describing different things, and so the arithmetic lives in one tested place.
+     */
+    val ringPolicy: com.meditrack.domain.reminder.RingPolicy
+        get() = com.meditrack.domain.reminder.RingPolicy.of(
+            mode = com.meditrack.domain.reminder.ReminderRingMode.fromName(ringMode),
+            chimeCount = ringTimes,
+            intervalSeconds = ringIntervalSeconds,
+            maxMinutes = ringMaxMinutes,
+        )
+
+    /** The search engine the «复查» button opens. */
+    val reviewEngine: com.meditrack.data.local.entity.ReviewSearchEngine
+        get() = com.meditrack.data.local.entity.ReviewSearchEngine.fromName(reviewSearchEngine)
+
+    /** True while the first-run agreement gate still has to be shown. */
+    val needsAgreement: Boolean get() = agreementAcceptedVersion < AGREEMENT_VERSION
+
     /** Minimum touch target, enlarged for the accessibility preset. */
     val minTouchTargetDp: Int
         get() = when {
@@ -328,3 +419,12 @@ data class UserPreferences(
 object WidgetPlannerDefaults {
     const val ITEM_LIMIT = 4
 }
+
+/**
+ * The agreement revision the user has to accept.
+ *
+ * A number rather than a boolean so that a *materially* changed agreement can be shown again by
+ * bumping it - while every ordinary feature release, which is what actually happens most of the time,
+ * shows nothing. The user's request was explicit: sign once, never again, including across updates.
+ */
+const val AGREEMENT_VERSION = 1

@@ -22,6 +22,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.EventAvailable
 import androidx.compose.material.icons.filled.Inventory2
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Warning
@@ -58,6 +59,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.meditrack.core.util.MedicationVisuals
+import com.meditrack.data.repository.MedicationReviewSnapshot
 import com.meditrack.data.repository.MedicationUiModel
 import com.meditrack.ui.components.StatusDot
 import com.meditrack.core.theme.prefs
@@ -79,8 +81,14 @@ fun MedicationListScreen(
     viewModel: MedicationListViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
+    val reviewStates by viewModel.reviewStates.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
     var pendingDelete by remember { mutableStateOf<MedicationUiModel?>(null) }
+
+    // The count advances when a dose is recorded elsewhere, which does not touch the medication row -
+    // so re-read the review progress every time this screen appears rather than trusting the snapshot
+    // that was true when the ViewModel was first created.
+    LaunchedEffect(Unit) { viewModel.refreshReviews() }
 
     pendingDelete?.let { target ->
         AlertDialog(
@@ -174,6 +182,7 @@ fun MedicationListScreen(
                     items(state.medications, key = { it.id }) { med ->
                         MedicationRow(
                             model = med,
+                            review = reviewStates[med.id],
                             onOpen = { onOpenMedication(med.id) },
                             onToggleActive = { viewModel.setActive(med.id, it) },
                             onDelete = { pendingDelete = med },
@@ -189,6 +198,7 @@ fun MedicationListScreen(
 @Composable
 private fun MedicationRow(
     model: MedicationUiModel,
+    review: MedicationReviewSnapshot?,
     onOpen: () -> Unit,
     onToggleActive: (Boolean) -> Unit,
     onDelete: () -> Unit,
@@ -304,6 +314,39 @@ private fun MedicationRow(
                                 modifier = Modifier.size(14.dp),
                             )
                         }
+                    }
+                }
+
+                // The «复查» line. It is a *state* rather than a control, so it is drawn as text and
+                // not as a chip: tapping it would do nothing, and the row's tap already opens the
+                // medication where the countdown can be changed. A reached threshold is the one line
+                // in this card that asks for action outside the app, hence the error colour.
+                val reviewDue = review?.isDue == true
+                val reviewLine = when {
+                    reviewDue -> "该复查了"
+                    else -> review?.subtitle
+                }
+                if (reviewLine != null) {
+                    Spacer(modifier = Modifier.padding(top = 4.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Filled.EventAvailable,
+                            contentDescription = null,
+                            tint = if (reviewDue) MaterialTheme.colorScheme.error
+                            else MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(14.dp),
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = reviewLine,
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = if (reviewDue) FontWeight.SemiBold else FontWeight.Normal,
+                            color = if (reviewDue) MaterialTheme.colorScheme.error
+                            else MaterialTheme.colorScheme.onSurfaceVariant,
+                            // Weighted for the same reason as the stock line: a sibling icon is
+                            // measured after this text and an unweighted text can starve it.
+                            modifier = Modifier.weight(1f, fill = false),
+                        )
                     }
                 }
             }

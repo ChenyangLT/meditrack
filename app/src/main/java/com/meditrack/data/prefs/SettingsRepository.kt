@@ -61,6 +61,22 @@ class SettingsRepository @Inject constructor(
         val BACKUP_FOLDER_URI = stringPreferencesKey("backup_folder_uri")
         val REMINDER_TONE = stringPreferencesKey("reminder_tone")
 
+        // ---- «持续响铃» and custom ringtones ----
+        val RING_MODE = stringPreferencesKey("ring_mode")
+        val RING_MAX_MINUTES = intPreferencesKey("ring_max_minutes")
+        val RING_TIMES = intPreferencesKey("ring_times")
+        val RING_INTERVAL_SECONDS = intPreferencesKey("ring_interval_seconds")
+        val RING_CLIP_ID = longPreferencesKey("ring_clip_id")
+
+        // ---- «复查提醒» ----
+        val REVIEW_REMINDER = booleanPreferencesKey("review_reminder_enabled")
+        val REVIEW_ADVANCE = intPreferencesKey("review_advance_notice")
+        val REVIEW_SEARCH_ENGINE = stringPreferencesKey("review_search_engine")
+        val REVIEW_SEARCH_SUFFIX = stringPreferencesKey("review_search_suffix")
+
+        // ---- first-run agreement ----
+        val AGREEMENT_VERSION = intPreferencesKey("agreement_accepted_version")
+
         // The one feature that touches the network. See UpdateChecker for exactly what it sends.
         val AUTO_UPDATE_CHECK = booleanPreferencesKey("auto_update_check")
         val LAST_UPDATE_CHECK = longPreferencesKey("last_update_check")
@@ -138,6 +154,64 @@ class SettingsRepository @Inject constructor(
     suspend fun setSoundEnabled(enabled: Boolean) = edit { it[Keys.SOUND_ENABLED] = enabled }
 
     suspend fun setReminderTone(name: String) = edit { it[Keys.REMINDER_TONE] = name }
+
+    // --------------------------------------------- ring («持续响铃») and ringtones
+
+    /** Which of 只响一次 / 一直响到处理 / 响几次就停 the reminder uses. */
+    suspend fun setRingMode(mode: com.meditrack.domain.reminder.ReminderRingMode) =
+        edit { it[Keys.RING_MODE] = mode.name }
+
+    /**
+     * The safety cap on a continuous ring, in minutes.
+     *
+     * Clamped to a floor of 1 because 0 would mean "ring until the battery dies", which is not a
+     * behaviour a medication app may offer.
+     */
+    suspend fun setRingMaxMinutes(minutes: Int) =
+        edit { it[Keys.RING_MAX_MINUTES] = minutes.coerceIn(1, 30) }
+
+    /** How many times 响几次就停 chimes; 1 is equivalent to 只响一次. */
+    suspend fun setRingTimes(count: Int) = edit { it[Keys.RING_TIMES] = count.coerceIn(1, 60) }
+
+    /** Seconds of silence between two chimes. */
+    suspend fun setRingIntervalSeconds(seconds: Int) = edit {
+        it[Keys.RING_INTERVAL_SECONDS] =
+            seconds.coerceIn(1, com.meditrack.domain.reminder.RingPolicy.MAX_INTERVAL_SECONDS)
+    }
+
+    /** Which custom [com.meditrack.data.local.entity.RingClip] is the reminder sound, or null. */
+    suspend fun setRingClipId(id: Long?) = edit { p ->
+        if (id == null) p.remove(Keys.RING_CLIP_ID) else p[Keys.RING_CLIP_ID] = id
+    }
+
+    // ------------------------------------------------------------ «复查提醒»
+
+    /** Master switch for the follow-up reminders, across every medication. */
+    suspend fun setReviewReminderEnabled(enabled: Boolean) =
+        edit { it[Keys.REVIEW_REMINDER] = enabled }
+
+    /** How many units before the threshold the gentle heads-up appears; 0 disables it. */
+    suspend fun setReviewAdvanceNotice(units: Int) =
+        edit { it[Keys.REVIEW_ADVANCE] = units.coerceIn(0, 30) }
+
+    /** Which search engine the 去百度搜索 button opens. */
+    suspend fun setReviewSearchEngine(engine: com.meditrack.data.local.entity.ReviewSearchEngine) =
+        edit { it[Keys.REVIEW_SEARCH_ENGINE] = engine.name }
+
+    /** Extra words appended to every review search, e.g. the user's own condition. */
+    suspend fun setReviewSearchSuffix(suffix: String) =
+        edit { it[Keys.REVIEW_SEARCH_SUFFIX] = suffix.trim().take(MAX_SEARCH_SUFFIX_LENGTH) }
+
+    // ------------------------------------------------------ first-run agreement
+
+    /**
+     * Records that the user signed the agreement, at revision [version].
+     *
+     * A revision rather than a flag so that bumping [AGREEMENT_VERSION] is the single, explicit way to
+     * ask again - and so that every ordinary release, which is what normally happens, asks nothing.
+     */
+    suspend fun setAgreementAcceptedVersion(version: Int) =
+        edit { it[Keys.AGREEMENT_VERSION] = version }
     suspend fun setVibrationEnabled(enabled: Boolean) = edit { it[Keys.VIBRATION_ENABLED] = enabled }
     suspend fun setHeadsUpEnabled(enabled: Boolean) = edit { it[Keys.HEADS_UP_ENABLED] = enabled }
     suspend fun setOverrideSilent(enabled: Boolean) = edit { it[Keys.OVERRIDE_SILENT] = enabled }
@@ -309,6 +383,17 @@ class SettingsRepository @Inject constructor(
                 this[Keys.SNOOZE_STATE_NOTIFICATION] ?: defaults.snoozeStateNotificationEnabled,
             quietHoursDeferEnabled = this[Keys.QUIET_DEFER] ?: defaults.quietHoursDeferEnabled,
             reminderTone = this[Keys.REMINDER_TONE] ?: defaults.reminderTone,
+            ringMode = this[Keys.RING_MODE] ?: defaults.ringMode,
+            ringMaxMinutes = this[Keys.RING_MAX_MINUTES] ?: defaults.ringMaxMinutes,
+            ringTimes = this[Keys.RING_TIMES] ?: defaults.ringTimes,
+            ringIntervalSeconds = this[Keys.RING_INTERVAL_SECONDS] ?: defaults.ringIntervalSeconds,
+            ringClipId = this[Keys.RING_CLIP_ID],
+            reviewReminderEnabled = this[Keys.REVIEW_REMINDER] ?: defaults.reviewReminderEnabled,
+            reviewAdvanceNotice = this[Keys.REVIEW_ADVANCE] ?: defaults.reviewAdvanceNotice,
+            reviewSearchEngine = this[Keys.REVIEW_SEARCH_ENGINE] ?: defaults.reviewSearchEngine,
+            reviewSearchSuffix = this[Keys.REVIEW_SEARCH_SUFFIX] ?: defaults.reviewSearchSuffix,
+            agreementAcceptedVersion =
+                this[Keys.AGREEMENT_VERSION] ?: defaults.agreementAcceptedVersion,
             backupFolderUri = this[Keys.BACKUP_FOLDER_URI] ?: defaults.backupFolderUri,
             autoUpdateCheck = this[Keys.AUTO_UPDATE_CHECK] ?: defaults.autoUpdateCheck,
             lastUpdateCheckAtMillis = this[Keys.LAST_UPDATE_CHECK] ?: defaults.lastUpdateCheckAtMillis,
@@ -353,5 +438,13 @@ class SettingsRepository @Inject constructor(
          */
         const val MIN_WIDGET_REFRESH_SECONDS = 10
         const val MAX_WIDGET_REFRESH_SECONDS = 600
+
+        /**
+         * Ceiling on the user's own extra search words.
+         *
+         * Generous for a condition name or a note to self, short enough that pasting a whole article
+         * into the field cannot produce a URL no browser will accept.
+         */
+        const val MAX_SEARCH_SUFFIX_LENGTH = 40
     }
 }

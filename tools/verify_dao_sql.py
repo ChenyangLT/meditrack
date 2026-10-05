@@ -37,8 +37,27 @@ def check(condition, message):
         failures.append(message)
 
 
-def build_v4(conn):
-    with open(os.path.join(SCHEMA_DIR, "4.json"), encoding="utf-8") as fh:
+def latest_schema_version():
+    """The highest checked-in Room schema version, so this check follows the database forward."""
+    versions = [
+        int(name[: -len(".json")])
+        for name in os.listdir(SCHEMA_DIR)
+        if name.endswith(".json") and name[: -len(".json")].isdigit()
+    ]
+    if not versions:
+        raise SystemExit(f"no exported Room schema found in {SCHEMA_DIR}")
+    return max(versions)
+
+
+def build_schema(conn, version):
+    """
+    Builds the database from the generated schema export for [version].
+
+    Reading Room's own `createSql` rather than a hand-written copy is the whole point: a @Query that
+    fails to prepare here fails for exactly the same reason on the device, and it fails *before* the
+    APK is built.
+    """
+    with open(os.path.join(SCHEMA_DIR, f"{version}.json"), encoding="utf-8") as fh:
         database = json.load(fh)["database"]
     for entity in database["entities"]:
         table = entity["tableName"]
@@ -83,10 +102,11 @@ def main():
 
     conn = sqlite3.connect(":memory:")
     conn.execute("PRAGMA foreign_keys = ON")
-    build_v4(conn)
+    version = latest_schema_version()
+    build_schema(conn, version)
 
     queries = extract_queries()
-    print(f"\n--- preparing {len(queries)} @Query statement(s) against the v4 schema ---")
+    print(f"\n--- preparing {len(queries)} @Query statement(s) against the v{version} schema ---")
     bad = 0
     for filename, line, sql in queries:
         stripped = " ".join(sql.split())
@@ -96,7 +116,7 @@ def main():
             bad += 1
             check(False, f"{filename}:{line} {exc} :: {stripped[:100]}")
 
-    check(bad == 0, f"all {len(queries)} statements prepare cleanly against the real v4 schema")
+    check(bad == 0, f"all {len(queries)} statements prepare cleanly against the real v{version} schema")
 
     # ------------------------------------------------- behaviour of the new queries
     print("\n--- seeding data to exercise the arming queries ---")

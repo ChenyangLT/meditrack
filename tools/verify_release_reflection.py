@@ -26,9 +26,15 @@ DEFAULT_APK = ROOT / "app" / "build" / "outputs" / "apk" / "release" / "app-rele
 SOURCE_ROOT = ROOT / "app" / "src" / "main" / "java" / "com" / "meditrack"
 
 # Classes Gson instantiates reflectively, for the update check and for backups.
+#
+# Every DTO is listed explicitly rather than derived from the sources, and that is deliberate: the point of
+# this check is to fail when a *new* DTO is added to the JSON format without a keep rule, so the list has to
+# be the thing a developer updates on purpose. Adding `ReviewCycleDto` and `RingClipDto` here is what keeps
+# the archive format's reflection guarantee true for the 2.0 backup shape.
 DTO_CLASSES = [
     "GitHubRelease", "GitHubAsset", "VersionManifest",
     "BackupFile", "MedicationDto", "ScheduleDto", "DoseLogDto", "DoseEventDto", "SettingsDto",
+    "ReviewCycleDto", "RingClipDto",
 ]
 
 

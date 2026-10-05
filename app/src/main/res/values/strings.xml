@@ -345,4 +345,181 @@
     <string name="widget_no_plan">今天没有用药计划</string>
     <string name="widget_outstanding">还有 %1$d 项</string>
     <string name="widget_more">还有 %1$d 项…</string>
+    <string name="widget_review_remaining">复查：%1$s</string>
+    <string name="widget_review_due">该复查了</string>
+
+    <!-- Ringing («持续响铃») -->
+    <string name="notification_channel_ringing">正在响铃</string>
+    <string name="notification_channel_ringing_desc">提醒正在响铃期间显示的常驻通知，带一个「停止响铃」按钮。停止后这条通知会消失，用药提醒仍然保留在通知栏。</string>
+    <string name="ringing_title">正在响铃：%1$s</string>
+    <string name="ringing_body">点「已服用」「稍后」或「跳过」即可停止响铃</string>
+    <string name="ringing_countdown">%1$s</string>
+    <string name="action_stop_ringing">停止响铃</string>
+    <string name="ringing_stopped">已停止响铃</string>
+    <string name="ring_note_stopped">已停止响铃，提醒仍保留在通知栏</string>
+
+    <!-- «复查提醒» -->
+    <string name="notification_channel_review">复查提醒</string>
+    <string name="notification_channel_review_desc">按医嘱到复查时间时的提醒。不会自动消失，需要你点一下「我知道了」。</string>
+    <string name="notification_title_review">该去复查了：%1$s</string>
+    <string name="notification_body_review">%1$s · %2$s</string>
+    <string name="notification_line_review_note">医生嘱托：%1$s</string>
+    <string name="notification_line_review_no_note">（你还没有填写医生说的复查时间，建议补上）</string>
+    <string name="notification_line_review_how">复查后请到「药品 → 该药 → 复查提醒」里点「开始新一轮」，提醒会重新开始计数。</string>
+    <string name="action_review_ack">我知道了</string>
+    <string name="action_review_search">去搜索</string>
+    <string name="review_search_no_browser">这台手机没有可用的浏览器，无法打开搜索</string>
+    <string name="review_advance_title">快到复查时间了：%1$s</string>
+    <string name="review_advance_body">%1$s，%2$s。别忘了提前挂号。</string>
+
+    <!-- First-run agreement -->
+    <string name="agreement_title">用户协议与使用说明</string>
+    <string name="agreement_tab_terms">用户协议</string>
+    <string name="agreement_tab_guide">使用说明</string>
+    <string name="agreement_accept_terms">我已阅读并同意《用户协议》</string>
+    <string name="agreement_accept_guide">我已阅读《使用说明》</string>
+    <string name="agreement_scroll_hint">请先滑动到底部</string>
+    <string name="agreement_wait_seconds">还需阅读 %1$d 秒</string>
+    <string name="agreement_enter">进入药准时</string>
+    <string name="agreement_enter_disabled">请阅读完两份文件并勾选</string>
+    <string name="agreement_review">查看用户协议与使用说明</string>
+    <string name="agreement_decline">不同意，退出</string>
+
+    <!--
+      Collapsible settings sections (设置分组：折叠 / 展开).
+
+      The headers, the summary lines and the section bodies are still Kotlin literals, which is the
+      convention this screen was built with. What lives here is the one string that is only ever
+      *spoken*: the state of a header for a screen reader, which has no visible label to duplicate.
+    -->
+    <string name="settings_section_expand">展开“%1$s”设置</string>
+    <string name="settings_section_collapse">收起“%1$s”设置</string>
+
+    <!--
+      Knowledge base (知识).
+
+      The article text itself lives in Kotlin (KnowledgeContent.kt) because it is a long, structured
+      corpus; only the screen's furniture is here. Nothing on this screen links out, so there is no
+      URL anywhere in this section by design.
+    -->
+    <string name="knowledge_title">基础知识库</string>
+    <string name="knowledge_search_hint">搜索：漏服 / 存放 / 相互作用…</string>
+    <string name="knowledge_search_clear">清除搜索内容</string>
+    <string name="knowledge_search_empty">没有找到相关文章</string>
+    <string name="knowledge_search_empty_hint">换个说法试试，例如「漏服」「冰箱」「过敏」「说明书」「副作用」。</string>
+    <string name="knowledge_disclaimer_card_title">先读这一段</string>
+    <string name="knowledge_offline_note">全部内容保存在这台手机本地，不联网、不收集任何信息。</string>
+    <string name="knowledge_emergency_card_title">紧急情况</string>
+    <string name="knowledge_emergency_card_hint">怀疑过敏、服药过量或出现严重不适时，先看这一篇。</string>
+    <string name="knowledge_section_count">%1$d 篇</string>
+    <string name="knowledge_article_open">打开《%1$s》</string>
+    <string name="knowledge_back">返回</string>
+    <string name="knowledge_expand">展开</string>
+    <string name="knowledge_collapse">收起</string>
+
+    <!--
+      «复查提醒» editor section, the medication list's 复查 line, and the ringtone picker / trimmer.
+
+      Screens in this app carry their Chinese inline (the resources exist for the notification and
+      lock-screen copy, which the system renders from a service). These entries mirror the new
+      screens' strings so a future localisation pass has one place to start from.
+    -->
+    <!-- 复查提醒（药品编辑页） -->
+    <string name="editor_section_review">复查提醒</string>
+    <string name="editor_review_intro">这个药吃多久要去复查，应用没法自己判断——只有开药的医生知道。你可以把医生说的话写下来，也可以先搜一下。</string>
+    <string name="editor_review_search_title">关于搜索</string>
+    <string name="editor_review_search_button">去搜索：%1$s</string>
+    <string name="editor_review_search_will">将用「%1$s」搜索：%2$s</string>
+    <string name="editor_review_search_offline">在浏览器里打开，应用不会上传你的用药信息。</string>
+    <string name="editor_review_search_query">搜索问句</string>
+    <string name="editor_review_search_query_hint">最多 %1$d 个字，药品名会自动加在最前面。</string>
+    <string name="editor_review_note_title">关于备注</string>
+    <string name="editor_review_note">医生怎么说（复查备注）</string>
+    <string name="editor_review_note_hint">例如：3 个月后复查肝功能</string>
+    <string name="editor_review_note_desc">这段话会原样显示在红色的复查通知和锁屏上，所以请写得简短、准确，例如复查项目和大概时间。</string>
+    <string name="editor_review_count_mode">计数方式</string>
+    <string name="editor_review_mode_doses_desc">只统计真正记录为「已服」的次数；跳过和漏服不算。</string>
+    <string name="editor_review_mode_days_desc">从开始计数那天算起，按自然日计算，第一天算第 1 天。</string>
+    <string name="editor_review_mode_quantity_desc">把每次服用的量累加起来，按%1$s计算。</string>
+    <string name="editor_review_threshold">复查阈值</string>
+    <string name="editor_review_threshold_label">达到多少就提醒复查</string>
+    <string name="editor_review_threshold_desc">填 0 表示不提醒复查。保存后如果改了这个数字，正在进行的这一轮会自动按新数字计算。</string>
+    <string name="editor_review_threshold_no_presets">累计剂量没有常用值，请直接填写。</string>
+    <string name="editor_review_progress_empty">上面填一个大于 0 的数字后，这里会显示还差多少。</string>
+    <string name="editor_review_due_title">该去复查了</string>
+    <string name="editor_review_due_body">已经数到 %1$d %2$s。复查后点下面的按钮，计数会从 0 重新开始，提醒也会重新打开。</string>
+    <string name="editor_review_new_round">开始新一轮</string>
+    <string name="editor_review_switch">开启复查提醒</string>
+    <string name="editor_review_switch_desc">到时间会发一条醒目的通知。数到的当天会自动关闭，点「开始新一轮」后会重新打开。</string>
+    <string name="editor_review_last_round">上一轮：第 %1$d 轮，%2$s 复查，共 %3$s</string>
+    <string name="editor_review_draft_note">还没保存的内容，会跟这个药品一起保存。</string>
+    <string name="editor_review_need_save">请先保存这个药品，保存后会从头开始计数</string>
+    <string name="editor_review_need_threshold">请先填写复查阈值，再开始新一轮</string>
+    <string name="review_browser_missing">这台手机没有可用的浏览器</string>
+
+    <!-- 药品列表的复查一行 -->
+    <string name="medications_review_due">该复查了</string>
+
+    <!-- 提醒铃声选择 -->
+    <string name="ringtone_title">提醒铃声</string>
+    <string name="ringtone_for_medication">为「%1$s」选择铃声</string>
+    <string name="ringtone_override_note">这个药品单独指定了铃声，它会盖过下面选中的全局铃声。要改回全局铃声，请到药品编辑页里清除这个药品的铃声设置。</string>
+    <string name="ringtone_global_note">这个药品目前使用全局铃声。在下面选择的铃声会成为全局默认，已经单独设置过铃声的其他药品不受影响。</string>
+    <string name="ringtone_builtin">内置铃声</string>
+    <string name="ringtone_builtin_desc">五段内置铃声，装在应用里，不受系统铃声设置影响。</string>
+    <string name="ringtone_mine">我的铃声</string>
+    <string name="ringtone_mine_empty">还没有自定义铃声。用下面的「选择本地音频」或「裁剪一个片段」添加一个。</string>
+    <string name="ringtone_add">添加自定义铃声</string>
+    <string name="ringtone_pick_local">选择本地音频</string>
+    <string name="ringtone_trim_clip">裁剪一个片段</string>
+    <string name="ringtone_add_desc">「选择本地音频」直接整段使用；「裁剪一个片段」会打开波形图，让你只截取其中一段。</string>
+    <string name="ringtone_pick_system">从系统铃声选择</string>
+    <string name="ringtone_pick_system_collapse">收起系统铃声</string>
+    <string name="ringtone_system_no_trim">系统铃声不支持裁剪，会整首使用。</string>
+    <string name="ringtone_system_empty">没有读取到系统铃声，可能是这台手机没有设置任何铃声。</string>
+    <string name="ringtone_use">使用</string>
+    <string name="ringtone_preview">试听</string>
+    <string name="ringtone_rename">改名</string>
+    <string name="ringtone_rename_title">给这个铃声改个名字</string>
+    <string name="ringtone_name_label">铃声名称</string>
+    <string name="ringtone_in_use">正在使用</string>
+    <string name="ringtone_delete_title">删除「%1$s」？</string>
+    <string name="ringtone_delete_body">只会删掉应用里复制的那一份，你手机上的原文件不受影响。</string>
+    <string name="ringtone_delete_in_use">这个铃声正在使用，先换一个再删除</string>
+    <string name="ringtone_file_missing">找不到这个铃声的文件，可能已被清理</string>
+    <string name="ringtone_read_failed">读取铃声失败，请稍后再试</string>
+    <string name="ringtone_save_failed">保存选择失败，请重试</string>
+    <string name="ringtone_rename_failed">改名失败，请重试</string>
+    <string name="ringtone_name_empty">名字不能为空</string>
+    <string name="ringtone_import_too_large">文件太大（超过 %1$d MB），请选一段短一点的音频</string>
+    <string name="ringtone_import_failed">读不到这个文件，请重新选择一次</string>
+    <string name="ringtone_import_unreadable">这个音频读不出声音，换一个试试（支持 MP3 / M4A / AAC / WAV / FLAC）</string>
+    <string name="ringtone_imported">已添加「%1$s」并设为提醒铃声</string>
+    <string name="ringtone_copy_title">为什么要复制一份</string>
+    <string name="ringtone_copy_body">选中的铃声会被复制到应用自己的目录里。这样即使你以后删掉原来的歌曲、换了音乐应用，或者手机重启，提醒到点仍然会响。</string>
+    <string name="ringtone_default_name">我的铃声</string>
+    <string name="ringtone_unnamed">未命名铃声</string>
+    <string name="ringtone_try_another">换一个试试</string>
+
+    <!-- 铃声裁剪 -->
+    <string name="trim_title">裁剪铃声</string>
+    <string name="trim_loading">正在读取音频…</string>
+    <string name="trim_unreadable">这段音频无法读取，请换一个文件（支持 MP3 / M4A / AAC / WAV / FLAC）</string>
+    <string name="trim_unreadable_hint">这段音频无法读取。可以换一个文件，或改用「选择本地音频」整段使用。</string>
+    <string name="trim_drag_hint">用手指拖动两条竖线选择范围，按住中间可以整体移动。</string>
+    <string name="trim_start_label">起点</string>
+    <string name="trim_end_label">终点</string>
+    <string name="trim_nudge_back">−0.5 秒</string>
+    <string name="trim_nudge_forward">+0.5 秒</string>
+    <string name="trim_preview">试听选段</string>
+    <string name="trim_stop">停止</string>
+    <string name="trim_preview_failed">无法试听这段音频，可以跳过试听直接保存</string>
+    <string name="trim_save">保存这个片段</string>
+    <string name="trim_saving">正在生成…</string>
+    <string name="trim_exporting">正在生成铃声文件，请不要退出…</string>
+    <string name="trim_saved">已保存「%1$s」并设为提醒铃声</string>
+    <string name="trim_failed">裁剪失败，请换一段音频试试</string>
+    <string name="trim_limits">只会保存你选中的这一段（最长 %1$d 秒，最短 %2$d 秒），原来的音频文件不会被改动或删除。</string>
+    <string name="trim_source">来源：%1$s</string>
+    <string name="trim_sound_off">提醒铃声的总开关目前是关闭的，保存后请到「设置 → 提醒铃声」里打开</string>
 </resources>

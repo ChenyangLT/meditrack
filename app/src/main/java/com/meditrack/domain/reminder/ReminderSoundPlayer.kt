@@ -46,6 +46,20 @@ class ReminderSoundPlayer @Inject constructor(
     private var focusRequest: AudioFocusRequest? = null
 
     /**
+     * Whether the user asked to be audible on a silent phone.
+     *
+     * Pushed in by the settings layer rather than read from DataStore here, because this class is
+     * called from broadcast receivers where a suspending preference read is not available.
+     */
+    @Volatile
+    var overrideSilent: Boolean = false
+        private set
+
+    fun setOverrideSilent(value: Boolean) {
+        overrideSilent = value
+    }
+
+    /**
      * Plays [tone] (or [customSoundUri] when the user picked a file), replacing whatever was playing.
      *
      * Safe to call from a broadcast receiver or a service: it returns immediately and never throws.
@@ -111,10 +125,13 @@ class ReminderSoundPlayer @Inject constructor(
      *
      * Used to honour the 「静音时仍然响铃」 switch: with it off, a silent ringer or an active
      * Do-Not-Disturb filter means the reminder stays quiet but still appears.
+     *
+     * [overrideSilent] is consulted here as well as at the call sites so that a caller which forgot to
+     * check cannot accidentally produce a silent "reminder" the user believes rang.
      */
     fun isSilenced(): Boolean {
         val manager = audioManager ?: return false
-        if (manager.ringerMode != AudioManager.RINGER_MODE_NORMAL) return true
+        if (manager.ringerMode != AudioManager.RINGER_MODE_NORMAL) return !overrideSilent
         val notifications = context.getSystemService(android.app.NotificationManager::class.java)
         return notifications?.currentInterruptionFilter?.let {
             it != android.app.NotificationManager.INTERRUPTION_FILTER_ALL

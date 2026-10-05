@@ -65,6 +65,10 @@ class WidgetContentBuilder @Inject constructor(
         // Read through the singleton accessor rather than an injected DAO: this also runs from the
         // widget's EntryPoint lookup, where assembling the full graph is unnecessary.
         val context = AppContextHolder.requireContext()
+        // The «复查» line per medication. Resolved once per render rather than once per row: three doses
+        // of the same medication must not be three reviews, and the day count has to be derived once so
+        // every row of the same medication agrees.
+        val reviews = WidgetReviewResolver.require().reviewLabels(today)
         val rows = MediTrackDatabase.getInstance(context)
             .homeWidgetDao()
             .getWidgetRowsOnce(today)
@@ -83,6 +87,7 @@ class WidgetContentBuilder @Inject constructor(
                     colorTag = row.colorTag,
                     icon = row.icon,
                     allowsFraction = row.allowsFraction,
+                    review = reviews[row.medicationId],
                 )
             }
         val content = WidgetPlanner.plan(rows, prefs.use24HourFormat)

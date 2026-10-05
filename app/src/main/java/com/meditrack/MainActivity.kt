@@ -29,6 +29,7 @@ class MainActivity : ComponentActivity() {
             MediTrackRoot(
                 focusDoseId = intent.getLongExtra(EXTRA_FOCUS_DOSE_ID, -1L),
                 focusEpochDay = intent.getLongExtra(EXTRA_FOCUS_EPOCH_DAY, Long.MIN_VALUE),
+                focusMedicationId = intent.getLongExtra(EXTRA_FOCUS_MEDICATION_ID, -1L),
             )
         }
     }
@@ -52,5 +53,13 @@ class MainActivity : ComponentActivity() {
 
         /** Extra the widget uses to open a past day in the history calendar. */
         const val EXTRA_FOCUS_EPOCH_DAY = "extra_focus_epoch_day"
+
+        /**
+         * Extra the «复查提醒» notification uses to open the medication it is about.
+         *
+         * The editor is the useful destination rather than a read-only view: the doctor's note and the
+         * 「开始新一轮」 button both live there, and those are the two things the user has to do next.
+         */
+        const val EXTRA_FOCUS_MEDICATION_ID = "extra_focus_medication_id"
     }
 }

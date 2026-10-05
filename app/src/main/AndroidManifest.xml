@@ -150,6 +150,32 @@
                 android:value="medication_reminder_reliability" />
         </service>
 
+        <!-- A reminder that keeps ringing until the user answers it.
+
+             This is a *second* foreground service rather than a mode of the guard service, and that is
+             deliberate: the guard service is a long-lived, silent, always-on component whose whole job is
+             to keep alarms scheduled, while this one is short-lived, noisy and tied to a single
+             unanswered dose. Folding them together would mean the guard service had to be restarted to
+             ring, and a ring that outlived its dose would hold the guard's "protection is on"
+             notification hostage.
+
+             `specialUse` with its own subtype, matching the guard service: this is neither media
+             playback (nothing is being streamed; a short alarm tone is played on the alarm stream by the
+             app itself) nor a phone call, and declaring it honestly keeps the permission list to the two
+             already-present FOREGROUND_SERVICE entries instead of adding another.
+
+             `stopWithTask="false"` for the same reason as the guard service: swiping the app out of
+             recents must not cut a ring short. -->
+        <service
+            android:name=".domain.reminder.ReminderRingingService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse"
+            android:stopWithTask="false">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="medication_reminder_ringing" />
+        </service>
+
         <!-- "The user picked the phone up" signal, which drives the unlock catch-up
              («解锁补提醒»): an overdue dose that nobody saw is re-announced the moment the phone is
              unlocked, or when the app comes back to the foreground.

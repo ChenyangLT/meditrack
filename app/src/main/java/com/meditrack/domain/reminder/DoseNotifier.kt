@@ -199,6 +199,31 @@ class DoseNotifier @Inject constructor(
             lockscreenVisibility = Notification.VISIBILITY_PUBLIC
         }
 
+        /**
+         * The «复查提醒».
+         *
+         * IMPORTANCE_HIGH so it takes the lock screen and the top of the shade, PUBLIC so the doctor's
+         * instruction is readable without unlocking, and badge-visible because it deliberately stays until
+         * it is acknowledged. A review reminder that could be missed by glancing past it would fail at the
+         * one thing it exists to do.
+         */
+        val review = NotificationChannel(
+            CHANNEL_REVIEW,
+            context.getString(R.string.notification_channel_review),
+            NotificationManager.IMPORTANCE_HIGH,
+        ).apply {
+            description = context.getString(R.string.notification_channel_review_desc)
+            setGroup(GROUP_REMINDERS)
+            // Silent on the channel for the same reason as every other reminder: the app plays its own
+            // tone, because a channel's sound is only a request to the vendor's notification manager.
+            setSound(null, null)
+            enableVibration(true)
+            vibrationPattern = VIBRATION_PATTERN
+            enableLights(true)
+            setShowBadge(true)
+            lockscreenVisibility = Notification.VISIBILITY_PUBLIC
+        }
+
         val status = NotificationChannel(
             CHANNEL_STATUS,
             context.getString(R.string.notification_channel_status),
@@ -229,7 +254,7 @@ class DoseNotifier @Inject constructor(
         }
 
         system.createNotificationChannels(
-            listOf(vibrate, quiet, silent, upcoming, snoozeState, missed, status, guard)
+            listOf(vibrate, quiet, silent, upcoming, snoozeState, missed, review, status, guard)
         )
     }
 
@@ -617,6 +642,201 @@ class DoseNotifier @Inject constructor(
 
         runCatching { manager.notify(snoozeNotificationId(dose.id), notification) }
             .onFailure { Log.e(TAG, "snooze-state notify() failed for dose ${dose.id}", it) }
+    }
+
+    /**
+     * Posts the «复查提醒»: the loud, permanent one.
+     *
+     * ## Why this notification is different from every other one here
+     *
+     * Every other notification describes a moment the user has to act on within minutes. This one
+     * describes a decision they have to make within days - book an appointment - and it is the only
+     * reminder in the app whose *content the app cannot possibly know*: it repeats what the doctor said,
+     * because the app has no way to know when a particular prescription needs a follow-up.
+     *
+     * Three consequences follow, and all three are deliberate:
+     *
+     *  - **It does not auto-cancel and it has no timeout.** A missed swipe must not be able to lose a
+     *    review; the user clears it with 我知道了, and that is the only way it goes away.
+     *  - **It is PUBLIC on the lock screen**, because "该去复查了" is exactly the kind of thing a person
+     *    should see without unlocking - and the note is their own prescription, not a secret.
+     *  - **It offers 去搜索 as well as 我知道了**, which is the second of the two answers the feature
+     *    promises: write down what the doctor said, or look it up. The URL is pre-built, so the button is
+     *    one tap rather than "open browser, type the drug name, type the question".
+     */
+    fun showReviewReminder(
+        medication: Medication,
+        progress: com.meditrack.domain.review.ReviewProgress,
+        prefs: UserPreferences,
+    ) {
+        if (!manager.areNotificationsEnabled()) {
+            Log.w(TAG, "not posting the review reminder: notifications are disabled for the app")
+            return
+        }
+
+        val config = medication.reviewConfig
+        val note = config.note.takeIf { it.isNotBlank() }
+        val detail = buildList {
+            add(progress.reachedLabel)
+            add(
+                if (note != null) {
+                    context.getString(R.string.notification_line_review_note, note)
+                } else {
+                    context.getString(R.string.notification_line_review_no_note)
+                }
+            )
+            add(context.getString(R.string.notification_line_review_how))
+        }.joinToString("\n")
+
+        val searchUrl = com.meditrack.data.local.entity.ReviewSearchQuery.url(
+            engine = prefs.reviewEngine,
+            medicationName = medication.name,
+            question = config.searchQuery,
+            suffix = prefs.reviewSearchSuffix,
+        )
+
+        val builder = NotificationCompat.Builder(context, CHANNEL_REVIEW)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setContentTitle(context.getString(R.string.notification_title_review, medication.name))
+            .setContentText(detail.lineSequence().first())
+            .setStyle(NotificationCompat.BigTextStyle().bigText(detail))
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setCategory(NotificationCompat.CATEGORY_REMINDER)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .setContentIntent(reviewContentIntent(medication.id))
+            // No auto-cancel: dismissing this by accident must not be able to lose a review. The only
+            // exits are 我知道了 and 去搜索.
+            .setAutoCancel(false)
+            .setOngoing(false)
+            .setOnlyAlertOnce(true)
+            .setShowWhen(true)
+            .addAction(
+                R.drawable.ic_notification,
+                context.getString(R.string.action_review_ack),
+                reviewAckIntent(medication.id),
+            )
+            .addAction(
+                R.drawable.ic_notification,
+                context.getString(R.string.action_review_search),
+                reviewSearchIntent(searchUrl),
+            )
+
+        // The tone is the user's own reminder sound, so a review notice is recognisable as "this app,
+        // something important" without a second sound to learn.
+        if (prefs.overrideSilent || !soundPlayer.isSilenced()) {
+            soundPlayer.play(ReminderTone.fromName(prefs.reminderTone), prefs.soundUri)
+        }
+
+        runCatching { manager.notify(reviewNotificationId(medication.id), builder.build()) }
+            .onSuccess { Log.i(TAG, "posted review reminder for medication ${medication.id}") }
+            .onFailure { Log.e(TAG, "review notify() failed for medication ${medication.id}", it) }
+    }
+
+    /**
+     * Posts the gentle advance notice, once per round.
+     *
+     * A review is something you have to book, so being told only on the day is nearly useless. This one
+     * is quiet and shade-only: it is a courtesy, and it fires while the user still has refills left.
+     */
+    fun showReviewAdvance(
+        medication: Medication,
+        progress: com.meditrack.domain.review.ReviewProgress,
+        prefs: UserPreferences,
+    ) {
+        if (!manager.areNotificationsEnabled()) return
+
+        val note = medication.reviewConfig.note.takeIf { it.isNotBlank() }
+            ?: context.getString(R.string.notification_line_review_no_note)
+
+        notify(
+            channel = CHANNEL_REMINDER_UPCOMING,
+            title = context.getString(R.string.review_advance_title, medication.name),
+            body = context.getString(R.string.review_advance_body, progress.remainingLabel, note),
+            prefs = prefs,
+            priority = NotificationCompat.PRIORITY_DEFAULT,
+        )
+    }
+
+    /** Removes a medication's review notifications once it has been acknowledged. */
+    fun cancelReviewReminder(medicationId: Long) {
+        manager.cancel(reviewNotificationId(medicationId))
+        manager.cancel(reviewAdvanceNotificationId(medicationId))
+    }
+
+    /**
+     * A minimal notification post for the two review notices, which need none of the dose machinery.
+     *
+     * Kept separate from the private dose `notify(...)`: that one is built around a `DoseLog` - its id
+     * space, its planned time, its 已服 / 稍后 / 跳过 actions - and bending it to fit a medication-level
+     * reminder would have meant a nullable dose threaded through every branch.
+     */
+    private fun notify(
+        channel: String,
+        title: String,
+        body: String,
+        prefs: UserPreferences,
+        priority: Int,
+    ) {
+        val builder = NotificationCompat.Builder(context, channel)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setContentTitle(title)
+            .setContentText(body)
+            .setPriority(priority)
+            .setCategory(NotificationCompat.CATEGORY_REMINDER)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .setAutoCancel(true)
+            .setOnlyAlertOnce(true)
+        if (prefs.vibrationEnabled) builder.setVibrate(VIBRATION_PATTERN)
+        runCatching { manager.notify(REVIEW_ADVANCE_ID, builder.build()) }
+            .onFailure { Log.e(TAG, "review advance notify() failed", it) }
+    }
+
+    private fun reviewAckIntent(medicationId: Long): PendingIntent {
+        val intent = Intent(context, NotificationActionReceiver::class.java).apply {
+            action = NotificationActionReceiver.ACTION_REVIEW_ACK
+            // The medication id travels in the dose slot; see ACTION_REVIEW_ACK's own note.
+            putExtra(NotificationActionReceiver.EXTRA_DOSE_ID, medicationId)
+        }
+        return PendingIntent.getBroadcast(
+            context,
+            (medicationId % 10_000L).toInt() + REVIEW_REQUEST_BASE,
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+    }
+
+    private fun reviewContentIntent(medicationId: Long): PendingIntent {
+        val intent = Intent(context, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            // Opening the editor is the useful destination: the note and 开始新一轮 both live there.
+            putExtra(MainActivity.EXTRA_FOCUS_MEDICATION_ID, medicationId)
+        }
+        return PendingIntent.getActivity(
+            context,
+            (medicationId % 10_000L).toInt() + REVIEW_CONTENT_REQUEST_BASE,
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+    }
+
+    /**
+     * Opens the pre-built search in whatever browser the user has.
+     *
+     * Deliberately an `ACTION_VIEW` on an `https` URL rather than any kind of embedded web view: the app
+     * promises that nothing about the user's prescriptions leaves the device on its own, and a search only
+     * happens because this button was pressed.
+     */
+    private fun reviewSearchIntent(url: String): PendingIntent {
+        val intent = Intent(context, NotificationActionReceiver::class.java).apply {
+            action = NotificationActionReceiver.ACTION_REVIEW_SEARCH
+            putExtra(NotificationActionReceiver.EXTRA_SEARCH_URL, url)
+        }
+        return PendingIntent.getBroadcast(
+            context,
+            REVIEW_SEARCH_REQUEST,
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
     }
 
     // ------------------------------------------------------------ lifecycle
@@ -1013,6 +1233,9 @@ class DoseNotifier @Inject constructor(
         const val CHANNEL_MISSED = "meditrack_missed"
         const val CHANNEL_STATUS = "meditrack_status"
 
+        /** The «复查提醒» channel: high importance, permanent until acknowledged, lock-screen visible. */
+        const val CHANNEL_REVIEW = "meditrack_review"
+
         /** The guard service's ongoing notification. */
         const val CHANNEL_GUARD = "meditrack_guard"
 
@@ -1030,6 +1253,26 @@ class DoseNotifier @Inject constructor(
         private const val FEEDBACK_ID = 999_999
         private const val DIGEST_ID = 999_998
         private const val SELF_TEST_ID = 999_997
+
+        /** The advance notice for a review; one at a time, named after the feature it belongs to. */
+        private const val REVIEW_ADVANCE_ID = 999_992
+
+        private const val REVIEW_REQUEST_BASE = 800_000
+        private const val REVIEW_CONTENT_REQUEST_BASE = 850_000
+        private const val REVIEW_SEARCH_REQUEST = 890_000
+
+        /**
+         * A medication's own notification id.
+         *
+         * Namespaced well away from the dose ids so a review notice and a dose reminder can never collide
+         * - and so cancelling one cannot silence the other.
+         */
+        fun reviewNotificationId(medicationId: Long): Int =
+            (medicationId % 100_000L).toInt() + 2_000_000
+
+        /** The advance notice shares the medication's space, offset so both can coexist. */
+        fun reviewAdvanceNotificationId(medicationId: Long): Int =
+            (medicationId % 100_000L).toInt() + 2_100_000
 
         /**
          * The "你还有 N 项没吃" summary.

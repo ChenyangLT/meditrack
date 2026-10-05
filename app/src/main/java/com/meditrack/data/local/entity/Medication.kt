@@ -70,6 +70,53 @@ data class Medication(
     /** Optional per-medication reminder tone override. */
     val customSoundUri: String? = null,
 
+    /**
+     * Optional per-medication [RingClip] id, overriding the global reminder sound.
+     *
+     * A row id into `ring_clips` rather than a uri, so the clip's file is known to be one the app owns
+     * and the cache cleaner can tell which files are still referenced.
+     */
+    val customRingClipId: Long? = null,
+
+    // ------------------------------------------------------------ «复查提醒»
+
+    /**
+     * Whether this medication's follow-up (`复查`) reminder is armed.
+     *
+     * Defaults to true so that a medication which already carries a threshold starts being counted the
+     * moment the user sets one - asking "do you also want to be reminded" a second time would be a
+     * dialog whose only sensible answer is yes. It is switched to false automatically when the
+     * threshold is reached, and back to true when the user starts a new round.
+     */
+    @ColumnInfo(defaultValue = "1")
+    val reviewReminderEnabled: Boolean = true,
+
+    /**
+     * What the doctor said about the follow-up - "3 个月后复查肝功能" - shown verbatim.
+     *
+     * This is the *first* of the two answers the feature offers, and the one it trusts: the app cannot
+     * know when a particular prescription needs a review, so it asks the person who was told.
+     */
+    @ColumnInfo(defaultValue = "''")
+    val reviewNote: String = "",
+
+    /** The question the search button opens; the drug name is prefixed automatically. */
+    @ColumnInfo(defaultValue = "'吃多久需要去复查'")
+    val reviewSearchQuery: String = "吃多久需要去复查",
+
+    /** How the threshold is counted. Snapshotted into each round when it starts. */
+    @ColumnInfo(defaultValue = "DOSES")
+    val reviewCountMode: ReviewCountMode = ReviewCountMode.DOSES,
+
+    /**
+     * How much is allowed before the follow-up: doses taken, calendar days, or accumulated amount.
+     *
+     * 0 means "no review reminder configured", which is why the feature is inert by default even though
+     * [reviewReminderEnabled] is true.
+     */
+    @ColumnInfo(defaultValue = "0")
+    val reviewThreshold: Double = 0.0,
+
     val createdAt: Long = System.currentTimeMillis(),
     val updatedAt: Long = System.currentTimeMillis(),
 ) {
@@ -88,4 +135,14 @@ data class Medication(
     /** "100mg/片 · 1 片" summary line. */
     val subtitle: String
         get() = listOf(strength, doseLabel).filter { it.isNotBlank() }.joinToString(" · ")
+
+    /** The whole 复查 setting as a value, for the editor, the notifier and the widget. */
+    val reviewConfig: MedicationReviewConfig
+        get() = MedicationReviewConfig(
+            reminderEnabled = reviewReminderEnabled,
+            note = reviewNote,
+            searchQuery = reviewSearchQuery,
+            countMode = reviewCountMode,
+            threshold = reviewThreshold,
+        )
 }

@@ -90,6 +90,25 @@ interface MedicationDao {
     suspend fun deleteAllMedications()
 
     /**
+     * Every per-medication ringtone override in use.
+     *
+     * Exists so [com.meditrack.data.repository.RingClipRepository] can work out which clip files are
+     * still referenced without depending on the medication repository - which depends on *it*, and that
+     * cycle would be a Dagger error surfaced at the worst possible time.
+     */
+    @Query("SELECT DISTINCT customRingClipId FROM medications WHERE customRingClipId IS NOT NULL")
+    suspend fun distinctCustomRingClipIds(): List<Long>
+
+    /**
+     * Arms or disarms one medication's «复查提醒».
+     *
+     * Called automatically when a round reaches its threshold (off) and when the user starts a new round
+     * (on), which is what "到了后自动关闭当前药品提醒，用户可手动重新开启" means in storage.
+     */
+    @Query("UPDATE medications SET reviewReminderEnabled = :enabled, updatedAt = :now WHERE id = :id")
+    suspend fun setReviewReminderEnabled(id: Long, enabled: Boolean, now: Long = System.currentTimeMillis())
+
+    /**
      * Replaces every slot of a medication in one transaction. Slots whose time is unchanged keep
      * their row id, so existing [com.meditrack.data.local.entity.DoseLog] rows stay attached to
      * the same schedule instead of being cascade-deleted when the user edits a medication.

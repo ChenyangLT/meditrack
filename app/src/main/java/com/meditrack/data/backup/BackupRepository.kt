@@ -17,8 +17,11 @@ import com.meditrack.data.local.entity.FoodTiming
 import com.meditrack.data.local.entity.Medication
 import com.meditrack.data.local.entity.MedicationColorTag
 import com.meditrack.data.local.entity.MedicationIcon
+import com.meditrack.data.local.entity.MedicationReviewCycle
 import com.meditrack.data.local.entity.RepeatRuleType
 import com.meditrack.data.local.entity.RepeatingRule
+import com.meditrack.data.local.entity.ReviewCountMode
+import com.meditrack.data.local.entity.RingClip
 import com.meditrack.data.local.entity.Schedule
 import com.meditrack.data.prefs.AccentColor
 import com.meditrack.data.prefs.FontScale
@@ -49,6 +52,8 @@ data class BackupFile(
     @SerializedName("schedules") val schedules: List<ScheduleDto> = emptyList(),
     @SerializedName("doseLogs") val doseLogs: List<DoseLogDto> = emptyList(),
     @SerializedName("doseEvents") val doseEvents: List<DoseEventDto> = emptyList(),
+    @SerializedName("reviewCycles") val reviewCycles: List<ReviewCycleDto> = emptyList(),
+    @SerializedName("ringClips") val ringClips: List<RingClipDto> = emptyList(),
     @SerializedName("settings") val settings: SettingsDto? = null,
 ) {
     companion object {
@@ -59,8 +64,13 @@ data class BackupFile(
          * preferences (heads-up banner, idle deferral). All of them are optional on import, so a v2
          * file still loads in a v1 build - but the version tells a v2 build that the extra fields
          * are worth reading, and lets a future v3 importer migrate deliberately.
+         *
+         * v3 added the «复查提醒» fields on `medications`, the `reviewCycles` and `ringClips` collections,
+         * and the ring / review preferences. Every one of them is nullable or defaulted, so a v3 file still
+         * imports cleanly into a v2 build (which ignores what it does not know) and a v2 file still imports
+         * into a v3 build (where it reads as "nothing configured").
          */
-        const val CURRENT_SCHEMA_VERSION = 2
+        const val CURRENT_SCHEMA_VERSION = 3
     }
 }
 
@@ -83,6 +93,75 @@ data class MedicationDto(
     @SerializedName("isActive") val isActive: Boolean,
     @SerializedName("createdAt") val createdAt: Long,
     @SerializedName("updatedAt") val updatedAt: Long,
+    /**
+     * Per-medication ringtone override, as a `ring_clips` row id.
+     *
+     * Nullable and defaulted for the same reason as every optional field here: `MedicationDto` has no
+     * all-default constructor, so Gson allocates it with `Unsafe` and an absent field becomes the JVM zero
+     * value rather than the Kotlin default. A nullable field is therefore the only shape that can tell
+     * "older backup" apart from a real value.
+     */
+    @SerializedName("customRingClipId") val customRingClipId: Long? = null,
+    /**
+     * The «复查提醒» settings.
+     *
+     * All nullable for the same reason. `reviewThreshold` being null is what makes every medication in a
+     * pre-2.0 backup import as "no review configured" rather than as "a review at zero doses" - which the
+     * mapper below turns into the correct historical answer.
+     */
+    @SerializedName("reviewReminderEnabled") val reviewReminderEnabled: Boolean? = null,
+    @SerializedName("reviewNote") val reviewNote: String? = null,
+    @SerializedName("reviewSearchQuery") val reviewSearchQuery: String? = null,
+    @SerializedName("reviewCountMode") val reviewCountMode: String? = null,
+    @SerializedName("reviewThreshold") val reviewThreshold: Double? = null,
+)
+
+/**
+ * A «复查» round, as it travels in a backup.
+ *
+ * Rounds are worth carrying even though the progress is derived: the *history* is the part a user would
+ * miss ("when did I last go for a review?"), and the start day is what the day-based countdown is computed
+ * from - so dropping it would silently restart every open round at zero, which would postpone a real
+ * review reminder by however long the round had already run.
+ */
+data class ReviewCycleDto(
+    @SerializedName("id") val id: Long,
+    @SerializedName("medicationId") val medicationId: Long,
+    @SerializedName("round") val round: Int,
+    @SerializedName("startedAtMillis") val startedAtMillis: Long,
+    @SerializedName("startedEpochDay") val startedEpochDay: Long,
+    @SerializedName("countMode") val countMode: String,
+    @SerializedName("threshold") val threshold: Double,
+    @SerializedName("count") val count: Double,
+    @SerializedName("countedEpochDay") val countedEpochDay: Long,
+    @SerializedName("reachedNotified") val reachedNotified: Boolean = false,
+    @SerializedName("advanceNotifiedEpochDay") val advanceNotifiedEpochDay: Long = 0L,
+    @SerializedName("acknowledgedAtMillis") val acknowledgedAtMillis: Long? = null,
+    @SerializedName("acknowledgedEpochDay") val acknowledgedEpochDay: Long? = null,
+    @SerializedName("createdAt") val createdAt: Long,
+    @SerializedName("updatedAt") val updatedAt: Long,
+)
+
+/**
+ * A user-created ringtone, as it travels in a backup.
+ *
+ * **The audio itself is deliberately not carried.** A clip folder can be tens of megabytes of arbitrary
+ * user media, which would turn a 200 KB JSON backup into a file nobody can email to themselves - and the
+ * file is regenerable from the source the user still has on their phone. What is carried is the metadata,
+ * including `filePath`, so the picker can list the clip after an import and tell the user it needs
+ * re-rendering rather than pretending the sound works.
+ */
+data class RingClipDto(
+    @SerializedName("id") val id: Long,
+    @SerializedName("name") val name: String,
+    @SerializedName("filePath") val filePath: String,
+    @SerializedName("durationMillis") val durationMillis: Long,
+    @SerializedName("sourceLabel") val sourceLabel: String,
+    @SerializedName("sourceUri") val sourceUri: String? = null,
+    @SerializedName("trimStartMillis") val trimStartMillis: Long = 0L,
+    @SerializedName("trimEndMillis") val trimEndMillis: Long = 0L,
+    @SerializedName("inUse") val inUse: Boolean = false,
+    @SerializedName("createdAt") val createdAt: Long,
 )
 
 data class ScheduleDto(
@@ -184,6 +263,25 @@ data class SettingsDto(
     @SerializedName("unlockReminderMaxPerDose") val unlockReminderMaxPerDose: Int? = null,
     @SerializedName("unlockReminderMinGapMinutes") val unlockReminderMinGapMinutes: Int? = null,
     @SerializedName("fullScreenReminderEnabled") val fullScreenReminderEnabled: Boolean? = null,
+    // Added in the 2.0 «持续响铃» / «复查提醒» release. Nullable like every other optional field, so a
+    // backup written by an older build imports cleanly and leaves these at their shipped defaults - which
+    // for `ringMode` is the loud one the feature was requested with.
+    @SerializedName("ringMode") val ringMode: String? = null,
+    @SerializedName("ringMaxMinutes") val ringMaxMinutes: Int? = null,
+    @SerializedName("ringTimes") val ringTimes: Int? = null,
+    @SerializedName("ringIntervalSeconds") val ringIntervalSeconds: Int? = null,
+    /**
+     * Which custom ringtone is selected.
+     *
+     * Named "clip" while [ringClips] carry the metadata, so an import can tell whether the selected id
+     * actually survived: a backup with a selected id but no matching clip entry would have left the user
+     * with a silent reminder, which is why the import clears it in that case.
+     */
+    @SerializedName("ringClipId") val ringClipId: Long? = null,
+    @SerializedName("reviewReminderEnabled") val reviewReminderEnabled: Boolean? = null,
+    @SerializedName("reviewAdvanceNotice") val reviewAdvanceNotice: Int? = null,
+    @SerializedName("reviewSearchEngine") val reviewSearchEngine: String? = null,
+    @SerializedName("reviewSearchSuffix") val reviewSearchSuffix: String? = null,
 )
 
 /** Outcome of an import, surfaced to the user as a toast. */
@@ -191,6 +289,10 @@ data class ImportResult(
     val medications: Int,
     val schedules: Int,
     val doseLogs: Int,
+    /** «复查» rounds restored; 0 for a backup written before the feature existed. */
+    val reviewCycles: Int = 0,
+    /** Ringtone entries restored. Their audio is not carried in the backup - see [RingClipDto]. */
+    val ringClips: Int = 0,
 )
 
 /**
@@ -204,6 +306,11 @@ data class ImportResult(
 class BackupRepository @Inject constructor(
     private val database: MediTrackDatabase,
     private val settingsRepository: SettingsRepository,
+    /**
+     * Needed for one thing only: re-pointing an imported ringtone entry at *this* device's own clip
+     * directory, since a backup's paths are absolute and belong to the machine that wrote it.
+     */
+    @dagger.hilt.android.qualifiers.ApplicationContext private val appContext: android.content.Context,
 ) {
 
     /**
@@ -220,6 +327,14 @@ class BackupRepository @Inject constructor(
         val schedules = database.medicationDao().getAllSchedulesOnce()
         val doses = database.doseLogDao().getBetween(Long.MIN_VALUE, Long.MAX_VALUE)
         val events = doses.flatMap { database.doseLogDao().getEventsFor(it.id) }
+        // Every round, not just the open ones: the closed rounds are the answer to "when did I last go for
+        // a review", which is the one piece of review state that cannot be reconstructed from anything else.
+        val cycles = medications.flatMap { medication ->
+            val open = database.reviewCycleDao().openCycleFor(medication.id)
+            val closed = database.reviewCycleDao().closedCyclesFor(medication.id)
+            (listOfNotNull(open) + closed).map { it.toDto() }
+        }
+        val clips = database.ringClipDao().all().map { it.toDto() }
         val prefs = settingsRepository.current()
         val now = System.currentTimeMillis()
 
@@ -232,6 +347,8 @@ class BackupRepository @Inject constructor(
             schedules = schedules.map { it.toDto() },
             doseLogs = doses.map { it.toDto() },
             doseEvents = events.map { it.toDto() },
+            reviewCycles = cycles,
+            ringClips = clips,
             settings = prefs.toDto(),
         )
     }
@@ -367,10 +484,38 @@ class BackupRepository @Inject constructor(
                 database.doseLogDao().insertEvent(dto.toEntity())
             }
 
+            // Rounds come after medications because they carry a foreign key, and a round for a medication
+            // that is not in this backup is skipped rather than failing the whole import. Ids are preserved,
+            // so a round keeps pointing at the medication it always belonged to.
+            var cycleCount = 0
+            for (dto in backup.reviewCycles) {
+                if (dto.medicationId !in medicationIds) continue
+                database.reviewCycleDao().insert(dto.toEntity())
+                cycleCount++
+            }
+
+            // Clip *metadata* only: the audio is not in the backup (see RingClipDto). Importing the rows
+            // keeps the picker honest - it lists the user's ringtones and can say their sound needs
+            // re-rendering - instead of silently pretending they were never made.
+            //
+            // The stored path is absolute and device-specific, so it is re-pointed at *this* device's clip
+            // directory using the same file name. On the same device that is the file that already exists;
+            // on a new device it will not exist, which RingClipRepository already handles by falling back
+            // to the bundled tone and logging the fact rather than ringing silently.
+            val clipDirectory = java.io.File(appContext.filesDir, "ringtones")
+            for (dto in backup.ringClips) {
+                val localFile = java.io.File(clipDirectory, java.io.File(dto.filePath).name)
+                database.ringClipDao().insert(
+                    dto.toEntity().copy(filePath = localFile.absolutePath)
+                )
+            }
+
             ImportResult(
                 medications = backup.medications.size,
                 schedules = scheduleIds.size,
                 doseLogs = logIds.size,
+                reviewCycles = cycleCount,
+                ringClips = backup.ringClips.size,
             )
         }
 
@@ -381,6 +526,16 @@ class BackupRepository @Inject constructor(
         // that fails must not be reported to the user as "导入失败" - and must certainly not suggest
         // that the import did not happen.
         runCatching { backup.settings?.let { settingsRepository.applyImportedSettings(it) } }
+        // Runs after the settings are in, because it inspects the setting they just wrote.
+        runCatching { verifyImportedRingtone(backup) }
+        // The clip table was rewritten, so which of its rows are still referenced has changed.
+        runCatching {
+            val global = settingsRepository.current().ringClipId
+            val perMedication = database.medicationDao().distinctCustomRingClipIds().toSet()
+            for (clip in database.ringClipDao().all()) {
+                database.ringClipDao().setInUse(clip.id, clip.id == global || clip.id in perMedication)
+            }
+        }
 
         result
     }
@@ -462,6 +617,46 @@ class BackupRepository @Inject constructor(
         dto.unlockReminderMaxPerDose?.let { setUnlockReminderMaxPerDose(it) }
         dto.unlockReminderMinGapMinutes?.let { setUnlockReminderMinGapMinutes(it) }
         dto.fullScreenReminderEnabled?.let { setFullScreenReminderEnabled(it) }
+        // The 2.0 ring and review options. `ringMode` is validated against this build's enum for the same
+        // reason the tone is: a backup from a future version must not leave the app pointing at a mode it
+        // cannot resolve, and an unresolvable mode would fall back to the loud default without anyone
+        // being told.
+        dto.ringMode?.let { name ->
+            if (com.meditrack.domain.reminder.ReminderRingMode.entries.any { it.name == name }) {
+                setRingMode(com.meditrack.domain.reminder.ReminderRingMode.fromName(name))
+            }
+        }
+        dto.ringMaxMinutes?.let { setRingMaxMinutes(it) }
+        dto.ringTimes?.let { setRingTimes(it) }
+        dto.ringIntervalSeconds?.let { setRingIntervalSeconds(it) }
+        dto.reviewReminderEnabled?.let { setReviewReminderEnabled(it) }
+        dto.reviewAdvanceNotice?.let { setReviewAdvanceNotice(it) }
+        dto.reviewSearchEngine?.let { name ->
+            if (com.meditrack.data.local.entity.ReviewSearchEngine.entries.any { it.name == name }) {
+                setReviewSearchEngine(com.meditrack.data.local.entity.ReviewSearchEngine.fromName(name))
+            }
+        }
+        dto.reviewSearchSuffix?.let { setReviewSearchSuffix(it) }
+        // The selected ringtone is written here and *verified* after the clips are imported, because
+        // whether it survived depends on whether its clip entry came with the backup - see
+        // verifyImportedRingtone.
+        dto.ringClipId?.let { setRingClipId(it) }
+    }
+
+    /**
+     * Clears the selected ringtone when the clip it points at did not come with the backup.
+     *
+     * This is a real failure mode rather than a theoretical one: a backup holds clip *metadata* but not the
+     * audio, and a user who exports, uninstalls and reinstalls restores rows that point at files which no
+     * longer exist. RingClipRepository already falls back to the bundled tone in that case and logs it -
+     * but the *setting* would still name a dead clip, which is exactly the kind of state that makes a user
+     * believe the feature is broken rather than that their sound is missing. Clearing it makes the fallback
+     * explicit and visible.
+     */
+    private suspend fun verifyImportedRingtone(backup: BackupFile) {
+        val selected = settingsRepository.current().ringClipId ?: return
+        val present = backup.ringClips.any { it.id == selected }
+        if (!present) settingsRepository.setRingClipId(null)
     }
 
     private inline fun <reified T : Enum<T>> enumOrDefault(name: String?, fallback: T): T =
@@ -476,6 +671,12 @@ class BackupRepository @Inject constructor(
         note = note, stockAmount = stockAmount, stockAlertThreshold = stockAlertThreshold,
         reminderEnabled = reminderEnabled, isActive = isActive,
         createdAt = createdAt, updatedAt = updatedAt,
+        customRingClipId = customRingClipId,
+        reviewReminderEnabled = reviewReminderEnabled,
+        reviewNote = reviewNote,
+        reviewSearchQuery = reviewSearchQuery,
+        reviewCountMode = reviewCountMode.name,
+        reviewThreshold = reviewThreshold,
     )
 
     private fun MedicationDto.toEntity() = Medication(
@@ -489,6 +690,17 @@ class BackupRepository @Inject constructor(
         note = note, stockAmount = stockAmount, stockAlertThreshold = stockAlertThreshold,
         reminderEnabled = reminderEnabled, isActive = isActive,
         createdAt = createdAt, updatedAt = updatedAt,
+        customRingClipId = customRingClipId,
+        // A backup from before 2.0 carries none of these, and "no review configured" is the correct
+        // historical answer: the user never set one, so nothing may start firing because of an import.
+        // The arming flag defaults to true here for the same reason it does in the entity - it is inert
+        // while the threshold is zero.
+        reviewReminderEnabled = reviewReminderEnabled ?: true,
+        reviewNote = reviewNote.orEmpty(),
+        reviewSearchQuery = reviewSearchQuery
+            ?: com.meditrack.data.local.entity.ReviewSearchQuery.DEFAULT_QUESTION,
+        reviewCountMode = enumOrDefault(reviewCountMode, ReviewCountMode.DOSES),
+        reviewThreshold = reviewThreshold ?: 0.0,
     )
 
     private fun Schedule.toDto() = ScheduleDto(
@@ -550,6 +762,55 @@ class BackupRepository @Inject constructor(
         timestamp = timestamp, note = note,
     )
 
+    private fun MedicationReviewCycle.toDto() = ReviewCycleDto(
+        id = id, medicationId = medicationId, round = round,
+        startedAtMillis = startedAtMillis, startedEpochDay = startedEpochDay,
+        countMode = countMode.name, threshold = threshold, count = count,
+        countedEpochDay = countedEpochDay,
+        reachedNotified = reachedNotified,
+        advanceNotifiedEpochDay = advanceNotifiedEpochDay,
+        acknowledgedAtMillis = acknowledgedAtMillis,
+        acknowledgedEpochDay = acknowledgedEpochDay,
+        createdAt = createdAt, updatedAt = updatedAt,
+    )
+
+    private fun ReviewCycleDto.toEntity() = MedicationReviewCycle(
+        id = id, medicationId = medicationId,
+        // A round number below 1 would break the "最高轮次 + 1" arithmetic that numbers the next round,
+        // so a malformed backup is corrected rather than trusted.
+        round = round.coerceAtLeast(1),
+        startedAtMillis = startedAtMillis,
+        startedEpochDay = startedEpochDay,
+        countMode = enumOrDefault(countMode, ReviewCountMode.DOSES),
+        threshold = threshold.coerceAtLeast(0.0),
+        count = count.coerceAtLeast(0.0),
+        countedEpochDay = countedEpochDay,
+        reachedNotified = reachedNotified,
+        advanceNotifiedEpochDay = advanceNotifiedEpochDay,
+        acknowledgedAtMillis = acknowledgedAtMillis,
+        acknowledgedEpochDay = acknowledgedEpochDay,
+        createdAt = createdAt, updatedAt = updatedAt,
+    )
+
+    private fun RingClip.toDto() = RingClipDto(
+        id = id, name = name, filePath = filePath, durationMillis = durationMillis,
+        sourceLabel = sourceLabel, sourceUri = sourceUri,
+        trimStartMillis = trimStartMillis, trimEndMillis = trimEndMillis,
+        inUse = inUse, createdAt = createdAt,
+    )
+
+    private fun RingClipDto.toEntity() = RingClip(
+        id = id, name = name, filePath = filePath,
+        durationMillis = durationMillis.coerceAtLeast(0L),
+        sourceLabel = sourceLabel, sourceUri = sourceUri,
+        trimStartMillis = trimStartMillis.coerceAtLeast(0L),
+        trimEndMillis = trimEndMillis.coerceAtLeast(0L),
+        // Recomputed from the restored medications and preferences the next time the app starts, so a
+        // backup cannot claim a clip is in use when nothing references it.
+        inUse = false,
+        createdAt = createdAt,
+    )
+
     private fun UserPreferences.toDto() = SettingsDto(
         themeMode = themeMode.name, useDynamicColor = useDynamicColor,
         accentColor = accentColor.name, fontScale = fontScale.name,
@@ -569,5 +830,14 @@ class BackupRepository @Inject constructor(
         unlockReminderMaxPerDose = unlockReminderMaxPerDose,
         unlockReminderMinGapMinutes = unlockReminderMinGapMinutes,
         fullScreenReminderEnabled = fullScreenReminderEnabled,
+        ringMode = ringMode,
+        ringMaxMinutes = ringMaxMinutes,
+        ringTimes = ringTimes,
+        ringIntervalSeconds = ringIntervalSeconds,
+        ringClipId = ringClipId,
+        reviewReminderEnabled = reviewReminderEnabled,
+        reviewAdvanceNotice = reviewAdvanceNotice,
+        reviewSearchEngine = reviewSearchEngine,
+        reviewSearchSuffix = reviewSearchSuffix,
     )
 }

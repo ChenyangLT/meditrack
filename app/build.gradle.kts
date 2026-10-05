@@ -19,6 +19,9 @@ android {
         // Bumped per delivery so each build can install straight over the last one (both are signed
         // with the same key, so a higher versionCode is what makes that an upgrade rather than a
         // downgrade refusal).
+        //  12 / 2.0.0 - custom ringtone with in-app trimming, ringing until acknowledged, per-medication
+        //               review reminders («复查提醒»), offline knowledge base, first-run agreement,
+        //               expandable settings, cache clearing
         //  11 / 1.9.0 - five bundled reminder tones (own audio, no system ringtone), tone-versioned channel
         //  10 / 1.8.1 - update check: own-site manifest first, three endpoints, real failure reasons
         //   9 / 1.8.0 - automatic update check (the app's only network call; prompt, never forced)
@@ -29,8 +32,8 @@ android {
         //   4 / 1.3.0 - background guard service, alarm-clock alarms and lost-alarm evidence
         //   3 / 1.2.0 - widget size family (4x1 / 4x2 / 4x3 / 4x4)
         //   2 / 1.1.0 - reminder pipeline rewrite
-        versionCode = 11
-        versionName = "1.9.0"
+        versionCode = 12
+        versionName = "2.0.0"
 
         // Custom runner that swaps in HiltTestApplication for the instrumented tests.
         testInstrumentationRunner = "com.meditrack.MediTrackTestRunner"
@@ -103,6 +106,12 @@ android {
     testOptions {
         unitTests.isReturnDefaultValues = true
     }
+
+    // The exported Room schemas are read by the instrumented migration tests, which need them on the
+    // *asset* path of the test APK. Without this the schemas are only compile-time documentation.
+    sourceSets {
+        getByName("androidTest").assets.srcDir("$projectDir/schemas")
+    }
 }
 
 kapt {
@@ -156,6 +165,18 @@ dependencies {
     // ---------- Biometric app lock ----------
     implementation("androidx.biometric:biometric:1.1.0")
 
+    // ---------- Audio: custom ringtone trimming ----------
+    // The in-app trimmer has to decode an arbitrary user file (MP3 / M4A / AAC / WAV / FLAC) to
+    // samples so it can draw a waveform, then re-encode the chosen slice into a small file. Hand-rolling
+    // that on top of MediaCodec is where this gets dangerous: the vendor codecs differ per phone, and a
+    // mis-negotiated output format fails only on the user's device. Media3 owns that negotiation.
+    //
+    // Pinned to 1.3.1 deliberately: it is the last Media3 line built against Kotlin 1.9 metadata, and
+    // this module still compiles with Kotlin 1.9.22.
+    implementation("androidx.media3:media3-exoplayer:1.3.1")
+    implementation("androidx.media3:media3-transformer:1.3.1")
+    implementation("androidx.media3:media3-effect:1.3.1")
+
     // ---------- Coroutines ----------
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
 
@@ -173,6 +194,9 @@ dependencies {
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.7.3")
     testImplementation("androidx.room:room-testing:2.6.1")
     testImplementation("com.google.truth:truth:1.1.5")
+    // Reads the checked-in Room schema JSON in the migration test, so the hand-written v4 -> v5 DDL is
+    // asserted against the schema Room actually generated rather than against a copy of itself.
+    testImplementation("com.google.code.gson:gson:2.10.1")
 
     // ---------- Instrumented tests ----------
     androidTestImplementation("androidx.test.ext:junit:1.1.5")

@@ -104,6 +104,18 @@ class ReminderEngine @Inject constructor(
     private val registry: ReminderAlarmRegistry,
     private val notifier: DoseNotifier,
     private val audit: ReminderAudit,
+    /**
+     * The custom-sound resolver.
+     *
+     * Lazy for the same reason [DoseRepository]'s heartbeat is: this is part of the reminder layer, and
+     * the medication side needs it to answer "which sound does this dose use", so an eager edge here
+     * would close a graph cycle Dagger cannot break on its own.
+     */
+    private val ringClips: dagger.Lazy<com.meditrack.data.repository.RingClipRepository>,
+    /** The «持续响铃» owner - the one thing that keeps a tone going, and the one thing that stops it. */
+    private val ringing: dagger.Lazy<RingingController>,
+    /** Decides whether any medication has reached its 复查 threshold during this pass. */
+    private val reviewReminders: dagger.Lazy<com.meditrack.domain.review.ReviewReminderService>,
 ) {
 
     /**
@@ -142,6 +154,10 @@ class ReminderEngine @Inject constructor(
             heartbeat.cancelAll(registry.armed())
             registry.clear()
             notifier.cancelAll()
+            // And silence anything already ringing. A user who switches reminders off while the phone is
+            // shouting at them means "stop" - not "stop the next one".
+            runCatching { ringing.get().stopAll("提醒总开关已关闭") }
+            ReminderRingingService.stop(appContext)
             return@withLock ReminderReport(
                 trigger = trigger,
                 delivered = 0,
@@ -273,6 +289,14 @@ class ReminderEngine @Inject constructor(
                         lateMillis = decision.lateMillis,
                     )
                     doseRepository.markNotified(dose.id, now)
+                    // The audible half: the notification is what the user sees, this is what they hear.
+                    // Started only for a reminder that is meant to be noticed - `quiet` covers quiet hours
+                    // and the "reminder already spent" repeats - and only for the *first* announcement of
+                    // a dose, so a repeat chime cannot restart a ring the user has just silenced by
+                    // answering a different escalation of it.
+                    if (!decision.quiet && decision.escalation == 0) {
+                        startRing(dose, medication, prefs)
+                    }
                     // Only the first announcement of a dose measures OS lateness; repeats are late
                     // by design, and averaging them in would hide the signal.
                     if (decision.escalation == 0 && decision.lateMillis > DRIFT_NOISE_MILLIS) {
@@ -378,6 +402,18 @@ class ReminderEngine @Inject constructor(
         registry.replaceArmed(armedIds, armedExpectations)
         publishDigest(dueAnnouncements, headsUpAnnouncements, prefs)
         publishUnlockCatchUp(unlockAnnouncements, prefs, reminderContext)
+
+        // 3b. The «复查提醒». Deliberately after every dose decision and before the rolling alarms are
+        //     re-armed: a follow-up notice must never be able to prevent a dose reminder, and it must not
+        //     be able to prevent the self-check chain either. The result is counted for the audit but not
+        //     folded into `delivered`, which is about doses.
+        val reviewNotices = if (prefs.reviewReminderEnabled) {
+            runCatching { reviewReminders.get().evaluate(today) }
+                .onFailure { Log.w(TAG, "review reminder pass failed", it) }
+                .getOrDefault(0)
+        } else {
+            0
+        }
         // 4. Re-arm both rolling alarms. Doing this at the *end* of every pass is what makes the
         //    chain self-healing: whichever path got here, the next heartbeat is now guaranteed.
         val nextSelfCheck = heartbeat.armSelfCheck(
@@ -670,6 +706,37 @@ class ReminderEngine @Inject constructor(
 
     private suspend fun medicationOf(dose: DoseLog): Medication? =
         runCatching { medicationRepository.getWithSchedules(dose.medicationId)?.medication }.getOrNull()
+
+    /**
+     * Starts the «持续响铃» for a reminder that has just been announced.
+     *
+     * Resolves the sound the *dose* should use - the medication's own clip if it has one, otherwise the
+     * global choice - so the ring and the notification's tone can never be two different sounds.
+     *
+     * Failures are swallowed on purpose: a phone whose audio subsystem refuses to start a ring still has
+     * a notification with 已服 / 稍后 / 跳过 on it, and turning that into a crash in the reminder pipeline
+     * would trade a quiet reminder for no reminder at all.
+     */
+    private suspend fun startRing(dose: DoseLog, medication: Medication?, prefs: UserPreferences) {
+        runCatching {
+            val policy = prefs.ringPolicy
+            if (policy.isSingleChime) return
+
+            val source = ringClips.get().resolve(prefs, medication?.customRingClipId)
+            val controller = ringing.get()
+            controller.applyPreferences(prefs)
+            val session = controller.start(
+                doseId = dose.id,
+                policy = policy,
+                tone = source.tone,
+                customUri = source.customPath,
+                medicationName = medication?.name.orEmpty(),
+            )
+            // The foreground service is what keeps the process - and therefore the ring - alive. Started
+            // only once a session actually exists, so a silent phone never shows a "正在响铃" notification.
+            if (session != null) ReminderRingingService.ensureRunning(appContext)
+        }.onFailure { Log.w(TAG, "could not start ringing for dose ${dose.id}", it) }
+    }
 
     /** The medication's name for the ongoing guard notification, or null when it cannot be read. */
     private suspend fun medicationNameOf(dose: DoseLog): String? = medicationOf(dose)?.name

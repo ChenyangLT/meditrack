@@ -176,12 +176,13 @@ def compare_tables(migrated, expected, table):
 
 def main():
     print("=" * 78)
-    print("MediTrack v2 -> v3 -> v4 migration verification")
+    print("MediTrack v2 -> v3 -> v4 -> v5 migration verification")
     print("=" * 78)
 
     v2 = load_schema(2)
     v3 = load_schema(3)
     v4 = load_schema(4)
+    v5 = load_schema(5)
 
     statements = extract_migration_sql("MIGRATION_2_3")
     print(f"\nExtracted {len(statements)} statement(s) from MIGRATION_2_3:")
@@ -301,9 +302,90 @@ def main():
         "medication data still intact after the v4 step",
     )
 
+    # -------------------------------------------------------------- 4 -> 5
+    #
+    # The «复查提醒» / custom-ringtone release. This step is different in kind from the previous two: it
+    # adds *columns with meaningful defaults* to `medications`, and a default that disagrees with the
+    # generated schema is exactly the thing Room rejects at runtime with "Migration didn't properly
+    # handle" - after the user's database has already been touched. So this step is checked twice over:
+    # once by the table diff below, and once by an explicit assertion that the defaults are the ones that
+    # make the new feature inert for a user who never configured it.
+    print("\n--- applying MIGRATION_4_5 ---")
+    review_statements = extract_migration_sql("MIGRATION_4_5")
+    print(f"Extracted {len(review_statements)} statement(s) from MIGRATION_4_5:")
+    for s in review_statements:
+        print("  - " + " ".join(s.split())[:110] + ("..." if len(s) > 110 else ""))
+    for statement in review_statements:
+        try:
+            migrated.execute(statement)
+        except sqlite3.Error as exc:
+            check(False, f"statement failed: {exc} :: {' '.join(statement.split())[:90]}")
+    migrated.commit()
+    check(True, "every v5 migration statement executed")
+
+    print("\n--- diffing the migrated database against the generated v5 schema ---")
+    expected_v5 = sqlite3.connect(":memory:")
+    create_schema(expected_v5, v5)
+    for entity in v5["entities"]:
+        compare_tables(migrated, expected_v5, entity["tableName"])
+
+    print("\n--- the new defaults must leave the review feature inert ---")
+    upgraded = migrated.execute(
+        "SELECT reviewReminderEnabled, reviewNote, reviewCountMode, reviewThreshold, reviewSearchQuery, "
+        "customRingClipId FROM medications WHERE id=1"
+    ).fetchone()
+    check(
+        upgraded is not None,
+        "the pre-existing medication survived the v5 step",
+    )
+    if upgraded is not None:
+        enabled, note, mode, threshold, query, clip = upgraded
+        check(enabled == 1, "reviewReminderEnabled defaults to armed")
+        check(
+            float(threshold) == 0.0,
+            "reviewThreshold defaults to 0, so nothing fires for a medication nobody configured",
+        )
+        check(mode == "DOSES", "reviewCountMode defaults to counting doses")
+        check(note == "", "reviewNote defaults to empty")
+        check(
+            query == "吃多久需要去复查",
+            "reviewSearchQuery defaults to the question the feature was specified with",
+        )
+        check(clip is None, "customRingClipId defaults to unset")
+
+    print("\n--- the new tables start empty and reference medications ---")
+    check(
+        migrated.execute("SELECT COUNT(*) FROM medication_review_cycles").fetchone()[0] == 0,
+        "no review round is invented for an upgrading user",
+    )
+    check(
+        migrated.execute("SELECT COUNT(*) FROM ring_clips").fetchone()[0] == 0,
+        "no ringtone is invented for an upgrading user",
+    )
+    migrated.execute("PRAGMA foreign_keys = ON")
+    try:
+        migrated.execute(
+            "INSERT INTO medication_review_cycles "
+            "(medicationId, round, startedAtMillis, startedEpochDay, countMode, threshold, count, "
+            " countedEpochDay, reachedNotified, advanceNotifiedEpochDay, createdAt, updatedAt) "
+            "VALUES (999, 1, 0, 0, 'DOSES', 0, 0, 0, 0, 0, 0, 0)"
+        )
+        check(False, "a review round for a missing medication must be rejected")
+    except sqlite3.IntegrityError:
+        check(True, "a review round cannot reference a medication that does not exist")
+
+    print("\n--- data preservation across 4 -> 5 ---")
+    after_v5 = migrated.execute(
+        "SELECT id, medicationId, plannedMinuteOfDay, status, escalationCount FROM dose_logs"
+    ).fetchall()
+    check(
+        after_v5 == [(7, 1, 480, "DUE", 0)],
+        "the dose survived the v5 step unchanged",
+    )
+
     # ------------------------------------------- idempotence of IF NOT EXISTS
     print("\n--- re-running the migrations must not corrupt anything ---")
-    for statement in statements + unlock_statements:
+    for statement in statements + unlock_statements + review_statements:
         try:
             migrated.execute(statement)
         except sqlite3.Error:
@@ -319,6 +401,10 @@ def main():
         migrated.execute("SELECT unlockReminderCount FROM dose_logs").fetchone()[0] == 0,
         "the unlock budget survived the re-run untouched",
     )
+    check(
+        migrated.execute("SELECT reviewThreshold FROM medications WHERE id=1").fetchone()[0] == 0.0,
+        "the review threshold survived the re-run untouched",
+    )
 
     # ------------------------------------------------------------- summary
     print("\n" + "=" * 78)
@@ -332,8 +418,8 @@ def main():
             print("  - " + f)
         return 1
     print(
-        "\nRESULT: PASSED - the database walked from v2 to v4 and is schema-identical to Room's "
-        "v4 export at every step."
+        "\nRESULT: PASSED - the database walked from v2 to v5 and is schema-identical to Room's "
+        "v5 export at every step."
     )
     return 0
 

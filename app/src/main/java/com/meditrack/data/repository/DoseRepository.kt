@@ -74,6 +74,14 @@ class DoseRepository @Inject constructor(
     private val heartbeat: dagger.Lazy<ReminderHeartbeat>,
     private val alarmRegistry: ReminderAlarmRegistry,
     private val widgetUpdater: dagger.Lazy<WidgetUpdater>,
+    /**
+     * The «复查提醒» counter.
+     *
+     * Lazy because the reminder layer - which needs this repository - reaches back into the review side
+     * through its own lazy edge. Holding it lazily here keeps both directions out of the constructors, so
+     * Dagger has no cycle to resolve and neither class is constructed inside the other.
+     */
+    private val reviewRepository: dagger.Lazy<ReviewRepository>,
 ) {
 
     // --------------------------------------------------------------- reads
@@ -326,6 +334,11 @@ class DoseRepository @Inject constructor(
         )
 
         onDoseSettled(dose.id, status)
+        // The «复查提醒» counter advances here - and only here - because this is where a dose becomes
+        // TAKEN by quantity. `applyStatus` below is its status-only twin; between them every
+        // "the user took it" path is covered: the notification's 已服, the stepper, 补记 in history, and
+        // the over-dose confirmation all funnel through one of the two.
+        recordReviewProgressIfTaken(dose, status)
         return getDoseView(dose.id)?.let { DoseActionResult.Applied(it) } ?: DoseActionResult.NotFound
     }
 
@@ -638,6 +651,36 @@ class DoseRepository @Inject constructor(
         alarmRegistry.remove(doseId)
     }
 
+    /**
+     * Tells the «复查提醒» side that a dose has just been taken, if that is what happened.
+     *
+     * ## Why the *transition* is what matters
+     *
+     * The requirement is "已服药的次数到达阈值", so the counter must move exactly once per dose that became
+     * taken - never for a dose that was already taken and is being re-confirmed, never for a skip or a
+     * miss, and never twice for the same dose because the user tapped 已服 and then nudged the stepper.
+     * Comparing the status before this write (from the row as it was read) with the status after it is the
+     * only formulation that is immune to all three.
+     *
+     * ## Why it never throws
+     *
+     * This runs inside the write that records the user's medication. A failure in a *follow-up* feature
+     * must not be able to lose that record, so the call is fire-and-logged.
+     */
+    private suspend fun recordReviewProgressIfTaken(dose: DoseLog, newStatus: DoseStatus) {
+        if (newStatus != DoseStatus.TAKEN) return
+        if (dose.status == DoseStatus.TAKEN) return
+        runCatching {
+            reviewRepository.get().onDoseTaken(
+                medicationId = dose.medicationId,
+                // `applyStatus` fills the dose up to its planned amount, so the amount that counts as
+                // "taken" is the planned one; the quantity paths already stored the real value.
+                takenQuantity = maxOf(dose.plannedQuantity, dose.takenQuantity),
+                previouslyTaken = dose.takenQuantity,
+            )
+        }.onFailure { android.util.Log.w("DoseRepository", "review progress update failed", it) }
+    }
+
     // ------------------------------------------------ deferred (idle) reminders
 
     /**
@@ -747,6 +790,7 @@ class DoseRepository @Inject constructor(
             )
         )
         onDoseSettled(dose.id, status)
+        recordReviewProgressIfTaken(dose, status)
     }
 
     /** Common post-write bookkeeping: stop or restore the reminder, then refresh the widget. */

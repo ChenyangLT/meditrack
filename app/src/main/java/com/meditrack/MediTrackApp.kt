@@ -44,8 +44,9 @@ class MediTrackApp : Application(), Configuration.Provider {
     @Inject lateinit var settingsRepository: SettingsRepository
     @Inject lateinit var reminderEngine: ReminderEngine
     @Inject lateinit var notifier: DoseNotifier
+    @Inject lateinit var ringingController: com.meditrack.domain.reminder.RingingController
+    @Inject lateinit var ringClipRepository: com.meditrack.data.repository.RingClipRepository
     @Inject lateinit var workerFactory: HiltWorkerFactory
-
     private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
     /**
@@ -79,11 +80,27 @@ class MediTrackApp : Application(), Configuration.Provider {
         // The widget's content builder runs outside Hilt's widget entry point in some launchers, so
         // the application context is published for it here.
         com.meditrack.widget.AppContextHolder.install(this)
+        // The widget's «复查» line needs the review tables, which live outside its single DAO read, so the
+        // read-only resolver is published the same way and for the same reason.
+        com.meditrack.widget.WidgetReviewResolver.install(
+            com.meditrack.widget.WidgetReviewResolver.create(this)
+        )
         // The audible channel depends on the chosen tone, so it is created once preferences are
         // readable; the static channels already exist from the notifier's own initialisation.
         appScope.launch {
-            runCatching { notifier.createChannels(settingsRepository.current()) }
-                .onFailure { Log.w(TAG, "could not create notification channels", it) }
+            runCatching {
+                val prefs = settingsRepository.current()
+                notifier.createChannels(prefs)
+                // The ringing controller reads preferences only through this push, because it is called
+                // from broadcast receivers where a suspending DataStore read is not available. Priming it
+                // here means the very first reminder after a reboot already knows whether the user asked to
+                // ring through a silent ringer.
+                ringingController.applyPreferences(prefs)
+                // Which clips are still referenced decides what the cache cleaner may delete, so the
+                // flags are recomputed whenever a clip file or a medication could have changed - and app
+                // start is the one moment that is guaranteed to have happened after both.
+                ringClipRepository.refreshInUse()
+            }.onFailure { Log.w(TAG, "could not create notification channels", it) }
         }
         registerPresenceReceiver()
         appScope.launch { bootstrap() }

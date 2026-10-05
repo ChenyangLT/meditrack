@@ -9,10 +9,12 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Medication
+import androidx.compose.material.icons.filled.MenuBook
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Today
 import androidx.compose.material.icons.outlined.CalendarMonth
 import androidx.compose.material.icons.outlined.Medication
+import androidx.compose.material.icons.outlined.MenuBook
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.Today
 import androidx.compose.material3.Badge
@@ -29,6 +31,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -43,10 +46,13 @@ import androidx.navigation.navArgument
 import com.meditrack.BuildConfig
 import com.meditrack.core.theme.MediTrackTheme
 import com.meditrack.data.prefs.UserPreferences
+import com.meditrack.ui.MediTrackTestTags
 import com.meditrack.ui.history.HistoryScreen
+import com.meditrack.ui.knowledge.KnowledgeScreen
 import com.meditrack.ui.medications.MedicationEditorScreen
 import com.meditrack.ui.medications.MedicationListScreen
 import com.meditrack.ui.settings.AboutScreen
+import com.meditrack.ui.settings.AgreementGate
 import com.meditrack.ui.settings.OnboardingScreen
 import com.meditrack.ui.settings.SettingsScreen
 import com.meditrack.ui.settings.SettingsViewModel
@@ -65,6 +71,7 @@ object Routes {
     const val TODAY = "today"
     const val MEDICATIONS = "medications"
     const val HISTORY = "history"
+    const val KNOWLEDGE = "knowledge"
     const val SETTINGS = "settings"
 
     const val MEDICATION_EDITOR = "medication_editor"
@@ -114,16 +121,17 @@ private data class TopLevelDestination(
  * Responsibilities:
  *  - read the preference snapshot once and hand it to [MediTrackTheme], so every screen inherits
  *    the theme, the font scale and the semantic dose colours;
- *  - own the bottom navigation (4 tabs, per the product brief);
+ *  - own the bottom navigation (5 tabs, per the product brief);
  *  - decide whether the permission walkthrough is shown on first launch.
  *
- * The four tabs match the mental model the brief describes: what do I take today, what am I taking,
- * what have I taken, and how is the app configured.
+ * The five tabs match the mental model the brief describes: what do I take today, what am I taking,
+ * what have I taken, what is worth knowing about taking it, and how is the app configured.
  */
 @Composable
 fun MediTrackRoot(
     focusDoseId: Long = -1L,
     focusEpochDay: Long = Long.MIN_VALUE,
+    focusMedicationId: Long = -1L,
     settingsViewModel: SettingsViewModel = hiltViewModel(),
     updateViewModel: UpdateViewModel = hiltViewModel(),
 ) {
@@ -141,6 +149,7 @@ fun MediTrackRoot(
             preferences = preferences,
             focusDoseId = focusDoseId,
             focusEpochDay = focusEpochDay,
+            focusMedicationId = focusMedicationId,
             // The ViewModel is resolved here, where it is in scope, and handed down so the
             // onboarding flow can persist "seen" without a second injection point.
             onOnboardingFinished = {
@@ -151,6 +160,13 @@ fun MediTrackRoot(
         availableUpdate?.let { info ->
             UpdateDialog(info = info, onDismiss = { updateViewModel.dismiss(info) })
         }
+
+        // The first-run agreement gate. Rendered *outside* the NavHost on purpose: it is not a
+        // destination the user can navigate away from, it is a condition on using the app at all.
+        // See AgreementGate for why it is a full-screen overlay rather than a dialog.
+        if (preferences.needsAgreement) {
+            AgreementGate(onAccepted = { settingsViewModel.acceptAgreement() })
+        }
     }
 }
 
@@ -159,11 +175,21 @@ private fun MediTrackNavHost(
     preferences: UserPreferences,
     focusDoseId: Long,
     focusEpochDay: Long,
+    focusMedicationId: Long,
     onOnboardingFinished: () -> Unit,
 ) {
     val navController = rememberNavController()
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentDestination = backStackEntry?.destination
+
+    // A 复查 reminder opens the medication it is about. Done once, keyed on the id, so re-composition
+    // cannot navigate twice - and so the back stack behaves: opening the editor from a notification and
+    // pressing back lands on the medication list, not on a duplicate editor.
+    LaunchedEffect(focusMedicationId) {
+        if (focusMedicationId > 0L && preferences.agreementAcceptedVersion > 0) {
+            navController.navigate(Routes.medicationEditor(focusMedicationId))
+        }
+    }
 
     val destinations = remember {
         listOf(
@@ -184,6 +210,12 @@ private fun MediTrackNavHost(
                 label = "历史",
                 selectedIcon = Icons.Filled.CalendarMonth,
                 unselectedIcon = Icons.Outlined.CalendarMonth,
+            ),
+            TopLevelDestination(
+                route = Routes.KNOWLEDGE,
+                label = "知识",
+                selectedIcon = Icons.Filled.MenuBook,
+                unselectedIcon = Icons.Outlined.MenuBook,
             ),
             TopLevelDestination(
                 route = Routes.SETTINGS,
@@ -234,6 +266,14 @@ private fun MediTrackNavHost(
                                         imageVector = if (selected) destination.selectedIcon
                                         else destination.unselectedIcon,
                                         contentDescription = destination.label,
+                                        // The tag rides on the icon, which is the element every tab
+                                        // already renders; only the new tab needs one, for tests that
+                                        // navigate the bar by tag rather than by localised label.
+                                        modifier = if (destination.route == Routes.KNOWLEDGE) {
+                                            Modifier.testTag(MediTrackTestTags.TAB_KNOWLEDGE)
+                                        } else {
+                                            Modifier
+                                        },
                                     )
                                 }
                             },
@@ -286,6 +326,10 @@ private fun MediTrackNavHost(
                 HistoryScreen(
                     onOpenMedication = { id -> navController.navigate(Routes.medicationEditor(id)) },
                 )
+            }
+
+            composable(Routes.KNOWLEDGE) {
+                KnowledgeScreen()
             }
 
             composable(Routes.SETTINGS) {

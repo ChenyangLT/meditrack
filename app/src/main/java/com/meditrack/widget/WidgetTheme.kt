@@ -30,6 +30,15 @@ object WidgetPalette {
         ResourceColorProvider(R.color.widget_on_surface_variant_light)
 
     /**
+     * The colour that means "you need to do something about this".
+     *
+     * Shared by a missed dose's status label and a reached 复查 line, deliberately: both are the same
+     * message to the user, and using two different reds for it would make the tile look like it had two
+     * severities of warning when it has one.
+     */
+    val alert: ColorProvider = ResourceColorProvider(R.color.widget_status_missed)
+
+    /**
      * Dot, glyph and status-label colour for a row.
      *
      * Yellow for a dose coming up within the half hour, red for one whose time has passed, green for

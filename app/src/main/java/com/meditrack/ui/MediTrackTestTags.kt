@@ -48,4 +48,18 @@ object MediTrackTestTags {
     const val TAB_MEDICATIONS = "tab_medications"
     const val TAB_HISTORY = "tab_history"
     const val TAB_SETTINGS = "tab_settings"
+
+    /** The 知识 (offline knowledge base) tab, added in 2.0.0. */
+    const val TAB_KNOWLEDGE = "tab_knowledge"
+
+    /** The two scrollable documents of the first-run gate, and its accept button. */
+    const val AGREEMENT_TERMS = "agreement_terms"
+    const val AGREEMENT_GUIDE = "agreement_guide"
+    const val AGREEMENT_ACCEPT = "agreement_accept"
+
+    /** The cached-sound rows of 设置 → 清除缓存. */
+    const val CLEAR_CACHE_BUTTON = "clear_cache_button"
+
+    /** The «复查提醒» section of the medication editor. */
+    const val REVIEW_SECTION = "review_section"
 }

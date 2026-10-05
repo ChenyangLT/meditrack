@@ -10,6 +10,7 @@ import com.meditrack.data.local.entity.MedicationColorTag
 import com.meditrack.data.local.entity.MedicationIcon
 import com.meditrack.data.local.entity.RepeatRuleType
 import com.meditrack.data.local.entity.RepeatingRule
+import com.meditrack.data.local.entity.ReviewCountMode
 
 /**
  * Room type converters.
@@ -49,6 +50,10 @@ class Converters {
     @TypeConverter fun eventToName(v: DoseEventType): String = v.name
     @TypeConverter fun nameToEvent(v: String): DoseEventType =
         runCatching { DoseEventType.valueOf(v) }.getOrDefault(DoseEventType.EDIT)
+
+    @TypeConverter fun reviewModeToName(v: ReviewCountMode): String = v.name
+    @TypeConverter fun nameToReviewMode(v: String): ReviewCountMode =
+        runCatching { ReviewCountMode.valueOf(v) }.getOrDefault(ReviewCountMode.DOSES)
 
     // ------------------------------------------------------- RepeatingRule
 

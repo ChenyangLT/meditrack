@@ -233,6 +233,24 @@ private fun WidgetDoseRow(
                 ),
                 maxLines = 1,
             )
+            // The «复查» line rides with the medication it belongs to, rather than living in a second list
+            // the user would have to reconcile against this one. It costs no extra row: the existing second
+            // line already carries a time and a dose, and appending this would push the dose off the edge on
+            // a narrow tile, so it gets its own - only when there is something to say, which for most
+            // medications most of the time is nothing.
+            item.reviewLabel?.let { review ->
+                Text(
+                    text = review,
+                    style = TextStyle(
+                        // Red once the review is due, because that is the one state the user has to act on;
+                        // the ordinary countdown stays the same muted grey as the rest of the metadata.
+                        color = if (item.reviewDue) WidgetPalette.alert else WidgetPalette.onSurfaceVariant,
+                        fontSize = 11.sp,
+                        fontWeight = if (item.reviewDue) FontWeight.Medium else FontWeight.Normal,
+                    ),
+                    maxLines = 1,
+                )
+            }
         }
 
         Spacer(modifier = GlanceModifier.width(6.dp))

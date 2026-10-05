@@ -42,21 +42,37 @@ class NotificationActionReceiver : BroadcastReceiver() {
     @Inject lateinit var settingsRepository: SettingsRepository
     @Inject lateinit var notifier: DoseNotifier
     @Inject lateinit var engine: ReminderEngine
+    @Inject lateinit var ringingController: RingingController
 
     override fun onReceive(context: Context, intent: Intent) {
         val action = intent.action ?: return
         val doseId = intent.getLongExtra(EXTRA_DOSE_ID, -1L)
-        if (doseId <= 0L) return
         Log.i(TAG, "onReceive action=$action doseId=$doseId")
 
         val pendingResult = goAsync()
         val appContext = context.applicationContext
         CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
             try {
+                // ---------------------------------------------------------- stop the ring FIRST
+                //
+                // Before anything else, and regardless of which action it was, and even when the
+                // action's own work is about to fail. The ring is a `MediaPlayer` looping in this
+                // process, so cancelling the notification does not silence it - and a user who has
+                // just tapped 已服用 while their phone is still shouting will not accept "the record
+                // was written, but the sound is a separate subsystem".
+                //
+                // This is also the whole point of the feature: 一直响到处理 means the *action* is what
+                // stops it, so every action has to.
+                ringingController.stopFor(doseId, "通知操作 $action").also {
+                    ReminderRingingService.stop(appContext)
+                }
+
                 when (action) {
                     ACTION_TAKEN -> handleTaken(appContext, doseId)
                     ACTION_SNOOZE -> handleSnooze(appContext, doseId, intent.getIntExtra(EXTRA_SNOOZE_MINUTES, 0))
                     ACTION_SKIP -> handleSkip(appContext, doseId)
+                    ACTION_REVIEW_ACK -> handleReviewAck(appContext, doseId)
+                    ACTION_REVIEW_SEARCH -> handleReviewSearch(appContext, intent.getStringExtra(EXTRA_SEARCH_URL))
                 }
                 // The widget mirrors the same data, so it must refresh immediately.
                 WidgetRefresh.requestUpdate(appContext)
@@ -114,6 +130,40 @@ class NotificationActionReceiver : BroadcastReceiver() {
     }
 
     /**
+     * Acknowledges a 复查 reminder.
+     *
+     * Only the notification is cleared, and the round is *not* closed: the button means "I have seen
+     * this", not "I went to the doctor". Closing the round is a deliberate act in the medication editor
+     * (「开始新一轮」), because getting it wrong in the direction of "silently reset the counter" would
+     * lose the very number the reminder exists to track.
+     */
+    private suspend fun handleReviewAck(context: Context, medicationId: Long) {
+        if (medicationId <= 0L) return
+        notifier.cancelReviewReminder(medicationId)
+        notifier.showActionConfirmation(context.getString(R.string.toast_saved))
+    }
+
+    /**
+     * Opens the pre-built 复查 search in the user's browser.
+     *
+     * A receiver rather than a `PendingIntent.getActivity` on the URL directly, so that a device with no
+     * browser gets the confirmation toast instead of a `ActivityNotFoundException` inside the
+     * notification manager - which would look to the user like the button silently doing nothing.
+     */
+    private fun handleReviewSearch(context: Context, url: String?) {
+        if (url.isNullOrBlank()) return
+        runCatching {
+            context.startActivity(
+                Intent(Intent.ACTION_VIEW, android.net.Uri.parse(url))
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            )
+        }.onFailure {
+            Log.w(TAG, "no browser to open the review search", it)
+            notifier.showActionConfirmation(context.getString(R.string.review_search_no_browser))
+        }
+    }
+
+    /**
      * Removes the "你还有 N 项没吃" summary once nothing it was counting is outstanding any more.
      *
      * The summary is a count, so leaving it in the shade after the last dose has been dealt with would
@@ -139,7 +189,20 @@ class NotificationActionReceiver : BroadcastReceiver() {
         const val ACTION_SNOOZE = "com.meditrack.action.NOTIF_SNOOZE"
         const val ACTION_SKIP = "com.meditrack.action.NOTIF_SKIP"
 
+        /**
+         * Acknowledges a 复查 reminder.
+         *
+         * Carries the *medication* id in the dose slot: a review belongs to a medication, not to a dose,
+         * and giving the extra a second name would mean a second `PendingIntent` request space for no
+         * benefit. The receiver dispatches on the action, so the two never mix.
+         */
+        const val ACTION_REVIEW_ACK = "com.meditrack.action.NOTIF_REVIEW_ACK"
+
+        /** Opens the pre-built 复查 search URL; the url travels in [EXTRA_SEARCH_URL]. */
+        const val ACTION_REVIEW_SEARCH = "com.meditrack.action.NOTIF_REVIEW_SEARCH"
+
         const val EXTRA_DOSE_ID = "extra_dose_id"
         const val EXTRA_SNOOZE_MINUTES = "extra_snooze_minutes"
+        const val EXTRA_SEARCH_URL = "extra_search_url"
     }
 }

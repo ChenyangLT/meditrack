@@ -3,8 +3,15 @@ package com.meditrack.ui.settings
 import android.content.Intent
 import android.provider.Settings
 import android.os.Build
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -13,6 +20,7 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -21,6 +29,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Accessibility
 import androidx.compose.material.icons.filled.Alarm
@@ -28,13 +37,18 @@ import androidx.compose.material.icons.filled.BatteryAlert
 import androidx.compose.material.icons.filled.Bedtime
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.CleaningServices
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.ErrorOutline
+import androidx.compose.material.icons.filled.EventAvailable
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Restore
 import androidx.compose.material.icons.filled.HealthAndSafety
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.NotificationsActive
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.PhoneAndroid
@@ -52,6 +66,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SnackbarHost
@@ -66,6 +81,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -73,14 +89,22 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.meditrack.R
 import com.meditrack.data.prefs.AccentColor
 import com.meditrack.data.prefs.FontScale
+import com.meditrack.data.prefs.SettingsRepository
 import com.meditrack.data.prefs.ThemeMode
 import com.meditrack.data.prefs.UserPreferences
 import com.meditrack.data.prefs.WeekStart
@@ -89,9 +113,17 @@ import com.meditrack.core.util.DateTimeUtils
 import com.meditrack.BuildConfig
 import com.meditrack.data.backup.BackupEntry
 import com.meditrack.data.local.entity.ReminderEvent
+import com.meditrack.data.local.entity.ReviewSearchEngine
+import com.meditrack.data.local.entity.RingClip
+import com.meditrack.data.repository.MedicationReviewSnapshot
 import com.meditrack.domain.reminder.ReminderHealth
+import com.meditrack.domain.reminder.ReminderRingMode
 import com.meditrack.ui.MediTrackTestTags
+import com.meditrack.ui.components.AdaptiveButtonRow
+import com.meditrack.ui.components.AdaptiveChipRow
 import com.meditrack.ui.components.TimePickerDialog
+import com.meditrack.ui.ringtone.RingtonePickerScreen
+import com.meditrack.ui.ringtone.TrimScreen
 import com.meditrack.domain.reminder.AlertChannel
 import com.meditrack.domain.reminder.ReminderTone
 import com.meditrack.ui.update.UpdateDialog
@@ -107,6 +139,15 @@ private val QUIET_PRESETS = listOf(
     22 * 60 to 7 * 60,
     23 * 60 to 6 * 60,
 )
+
+/**
+ * How long an expandable section takes to open or close, in milliseconds.
+ *
+ * Short on purpose: this is a settings list, and the movement exists to stop the list jumping under
+ * the user's thumb - not to be watched. Anything slower turns "let me check that value" into a
+ * sequence of small waits.
+ */
+private const val SETTINGS_EXPAND_MILLIS = 180
 
 /**
  * 设置.
@@ -136,11 +177,39 @@ fun SettingsScreen(
     val backups by viewModel.backups.collectAsStateWithLifecycle()
     val updateFound by viewModel.updateFound.collectAsStateWithLifecycle()
     val backupFolder by viewModel.backupFolder.collectAsStateWithLifecycle()
+    val cacheUsage by viewModel.cacheUsage.collectAsStateWithLifecycle()
+    val ringClips by viewModel.ringClips.collectAsStateWithLifecycle()
+    val reviewSnapshots by viewModel.reviewSnapshots.collectAsStateWithLifecycle()
+    // The sound source as one phrase: the chosen clip if there is one, the bundled tone otherwise - and
+    // "静音" when the tone is switched off, because in that case neither of the others is what the user
+    // will actually hear. Computed once here rather than per section: two call sites need it (the
+    // 提醒方式 summary and the ringtone entrance row), and letting them compute it separately is how the
+    // two lines end up disagreeing about what the reminder sounds like.
+    val soundLabel = when {
+        !preferences.soundEnabled -> "静音"
+        else -> ringClips.firstOrNull { it.id == preferences.ringClipId }?.name
+            ?: com.meditrack.domain.reminder.ReminderTone.fromName(preferences.reminderTone).label
+    }
     val snackbarHostState = remember { SnackbarHostState() }
     // A listed backup is imported only after an explicit confirmation: it replaces everything.
     var pendingImport by remember { mutableStateOf<BackupEntry?>(null) }
     // Which end of the do-not-disturb window the time dialog is editing: 0 = start, 1 = end.
     var quietEditing by remember { mutableStateOf<Int?>(null) }
+    // 清除缓存 deletes files, so it asks first and says exactly what it will and will not take.
+    var confirmingCacheClear by remember { mutableStateOf(false) }
+    // The ringtone picker and the trimmer are shown *instead of* the settings list rather than pushed
+    // onto a navigation graph: they are steps in one decision ("what will my reminder sound like?"),
+    // and owning the state here makes backing out a single assignment with nothing to unwind.
+    var showRingtonePicker by remember { mutableStateOf(false) }
+    // null = showing settings; a pair = trimming that source down into a clip.
+    var trimSource by remember { mutableStateOf<Pair<android.net.Uri, String>?>(null) }
+
+    // The system back button has to close the picker before it leaves 设置, or a user three taps deep
+    // in the trimmer ends up outside the app with no idea what happened.
+    BackHandler(enabled = showRingtonePicker || trimSource != null) {
+        trimSource = null
+        showRingtonePicker = false
+    }
 
     // The self-check is a snapshot of system state, so it is read when the screen appears and
     // refreshed on every resume - the same treatment the permission rows already get.
@@ -148,6 +217,7 @@ fun SettingsScreen(
         viewModel.refreshHealth()
         // The folder is the source of truth for the backup list, so re-read it rather than caching.
         viewModel.refreshBackups()
+        viewModel.refreshCacheUsage()
     }
 
     // Permission state lives in the system, not in our state; re-read it on every resume so
@@ -159,6 +229,7 @@ fun SettingsScreen(
                 viewModel.refreshPermissions(context)
                 viewModel.refreshHealth()
                 viewModel.refreshBackups()
+                viewModel.refreshCacheUsage()
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -185,6 +256,11 @@ fun SettingsScreen(
             viewModel.onMessageShown()
         }
     }
+
+    // The ringtone screens own their own feedback - they report a saved clip or a failed save through
+    // their own snackbar, before they hand control back. There is deliberately nothing queued here:
+    // this screen's SnackbarHost is not composed while they are on top, so a message left pending
+    // would wait for a host that is not there.
 
     updateFound?.let { info ->
         UpdateDialog(info = info, onDismiss = { viewModel.dismissUpdate(info) })
@@ -232,6 +308,61 @@ fun SettingsScreen(
         )
     }
 
+    // The dialog names both halves explicitly. "清除缓存" on its own is a phrase users have learned
+    // to distrust, and rightly so: what it deletes is usually invisible until something is missing.
+    // Here the invisible things are the point, so the copy spends its space on what *survives*.
+    if (confirmingCacheClear) {
+        AlertDialog(
+            onDismissRequest = { confirmingCacheClear = false },
+            title = { Text("清除缓存？") },
+            text = {
+                Text(
+                    "会删除：\n" +
+                        "· 没有被使用的自定义铃声片段（${cacheUsage.clipCount - cacheUsage.inUseCount} 个）\n" +
+                        "· 提醒决策日志（${cacheUsage.auditEntries} 条，只用于排查「为什么没提醒」）\n\n" +
+                        "不会删除：\n" +
+                        "· 药品、服药时间与全部服药记录\n" +
+                        "· 正在使用的铃声（${cacheUsage.inUseCount} 个）与所有设置\n" +
+                        "· 已经导出的备份文件\n\n" +
+                        "铃声片段只是音频文件，铃声列表里的条目会保留，随时可以重新生成。",
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        viewModel.clearCache()
+                        confirmingCacheClear = false
+                    },
+                ) { Text("清除") }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmingCacheClear = false }) { Text("取消") }
+            },
+        )
+    }
+
+    if (showRingtonePicker) {
+        // The picker asks the ViewModel for the clip list and applies a selection immediately; coming
+        // back just re-reads the settings screen's own state, which already observed the change.
+        RingtonePickerScreen(
+            onBack = { showRingtonePicker = false },
+            onOpenTrimmer = { uri, label -> trimSource = uri to label },
+        )
+    } else if (trimSource != null) {
+        val (uri, label) = trimSource!!
+        TrimScreen(
+            sourceUri = uri,
+            sourceLabel = label,
+            onBack = { trimSource = null },
+            onSaved = { _ ->
+                // Saving a clip both creates the row and selects it, but "which clip is in use" is
+                // denormalised - so the in-use flags and the usage figures are re-read rather than
+                // assumed, exactly as the ring-clip repository documents.
+                trimSource = null
+                viewModel.refreshCacheUsage()
+            },
+        )
+    } else {
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = { TopAppBar(title = { Text("设置") }) },
@@ -248,7 +379,17 @@ fun SettingsScreen(
         ) {
             // ---------------------------------------------------------- permissions
             item {
-                SettingsSection("权限", Icons.Filled.NotificationsActive) {
+                ExpandableSettingsSection(
+                    title = "权限",
+                    icon = Icons.Filled.NotificationsActive,
+                    // The collapsed line is the whole point of this section: a permission that is
+                    // missing degrades the core feature silently, so it has to be visible without
+                    // asking the user to open anything.
+                    summary = when {
+                        permissions.allGranted -> "已授权"
+                        else -> "还差 ${permissions.pendingCount} 项"
+                    },
+                ) {
                     PermissionRow(
                         title = "通知权限",
                         subtitle = "没有通知权限就收不到任何提醒",
@@ -306,7 +447,17 @@ fun SettingsScreen(
 
             // ------------------------------------------------------------ reminders
             item {
-                SettingsSection("提醒", Icons.Filled.Alarm) {
+                ExpandableSettingsSection(
+                    title = "提醒",
+                    icon = Icons.Filled.Alarm,
+                    // Says what the master switch is doing *and* how punctual the alarm class is:
+                    // "提醒已开启" alone would be true even when every reminder is minutes late.
+                    summary = if (!preferences.remindersEnabled) {
+                        "提醒已关闭"
+                    } else {
+                        "提醒已开启 · " + if (preferences.exactAlarms) "精确闹钟" else "非精确闹钟"
+                    },
+                ) {
                     SwitchRow(
                         title = "开启用药提醒",
                         subtitle = "总开关；关闭后不再发送任何通知",
@@ -370,6 +521,23 @@ fun SettingsScreen(
                             onClick = { openAlertChannelSettings(context, preferences) },
                         ) { Text("打开系统的通知设置（声音被系统改掉时用这里）") }
                     }
+
+                    // The custom-ringtone entrance, and it is deliberately outside the
+                    // `soundEnabled` branch: a user who wants to make a ringtone should not have to
+                    // find and flip a second switch first to be allowed to open the picker.
+                    ActionRow(
+                        icon = Icons.Filled.MusicNote,
+                        title = "选择 / 裁剪铃声",
+                        subtitle = "当前：$soundLabel",
+                        onClick = { showRingtonePicker = true },
+                    )
+                    Text(
+                        text = "可以从手机里选一首歌，裁出十几秒当提醒音。裁好的片段会复制一份存进药准时，" +
+                            "所以以后删掉原歌、换手机，提醒的声音都不会变哑。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+
                     SwitchRow(
                         title = "静音时仍然响铃",
                         subtitle = "把提醒当作闹钟处理，谨慎开启",
@@ -413,7 +581,13 @@ fun SettingsScreen(
             // is delivered rather than whether it is, which is why it sits next to the reliability
             // card rather than inside the reminder card.
             item {
-                SettingsSection("提醒方式", Icons.Filled.Schedule) {
+                // The sound label is computed once at the top of the screen - see `soundLabel` there.
+                val ringMode = ReminderRingMode.fromName(preferences.ringMode)
+                ExpandableSettingsSection(
+                    title = "提醒方式",
+                    icon = Icons.Filled.Schedule,
+                    summary = "${ringMode.label} · $soundLabel",
+                ) {
                     Text(
                         text = "提醒不追求精确到秒，而是尽量在你方便的时候、用你容易接受的方式告诉你。",
                         style = MaterialTheme.typography.bodySmall,
@@ -471,6 +645,74 @@ fun SettingsScreen(
                             onSelect = viewModel::setStaleReminderMinutes,
                         )
                     }
+
+                    Spacer(modifier = Modifier.height(4.dp))
+                    HorizontalDivider()
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    // ------------------------------------------------- «持续响铃»
+                    //
+                    // How a reminder behaves *after* it has been announced. It lives with 提醒方式
+                    // rather than in 提醒可靠性 because it changes how the reminder sounds, not
+                    // whether it arrives - and its whole purpose is the case where the user was not
+                    // in the room for the first chime.
+                    Text(
+                        text = "响铃",
+                        style = MaterialTheme.typography.bodyLarge,
+                    )
+                    Text(
+                        text = "只响一声很容易被错过。让提醒一直响到有人处理，是「没听见」这类漏服最直接的解法。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    ChipRow(
+                        title = "响铃方式",
+                        options = ReminderRingMode.entries,
+                        selected = ringMode,
+                        labelOf = { it.label },
+                        onSelect = viewModel::setRingMode,
+                    )
+                    // The description is the reason each mode exists; a chip labelled "一直响到处理"
+                    // does not by itself tell the user that answering the notification is what makes
+                    // it stop.
+                    Text(
+                        text = ringMode.description,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    // Only the mode that uses them is shown: an option that would be ignored is worse
+                    // than no option, because the user believes they set it.
+                    if (ringMode == ReminderRingMode.UNTIL_ACTION) {
+                        NumberOptionRow(
+                            title = "最多响多久（分钟）",
+                            options = listOf(1, 2, 3, 5, 10, 15),
+                            selected = preferences.ringMaxMinutes,
+                            labelOf = { "$it 分钟" },
+                            onSelect = viewModel::setRingMaxMinutes,
+                        )
+                        Text(
+                            text = "到点仍未处理就安静下来，通知会留在通知栏——手机放在包里时，这一条防止它响到没电。",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    if (ringMode == ReminderRingMode.FIXED_TIMES) {
+                        NumberOptionRow(
+                            title = "响铃次数",
+                            options = listOf(2, 3, 5, 10, 20),
+                            selected = preferences.ringTimes,
+                            labelOf = { "$it 次" },
+                            onSelect = viewModel::setRingTimes,
+                        )
+                        NumberOptionRow(
+                            title = "间隔（秒）",
+                            options = listOf(5, 10, 20, 30, 60, 120),
+                            selected = preferences.ringIntervalSeconds,
+                            labelOf = { "$it 秒" },
+                            onSelect = viewModel::setRingIntervalSeconds,
+                        )
+                    }
                 }
             }
 
@@ -481,7 +723,11 @@ fun SettingsScreen(
             // the dose, which is why the default is to hold the reminder until the window ends rather
             // than to drop it.
             item {
-                SettingsSection("免打扰时段", Icons.Filled.Bedtime) {
+                ExpandableSettingsSection(
+                    title = "免打扰时段",
+                    icon = Icons.Filled.Bedtime,
+                    summary = quietHoursSummary(preferences),
+                ) {
                     Text(
                         text = "设一个时间段，这段时间内不会有声音、震动，也不会在锁屏上弹出——适合睡觉时间。",
                         style = MaterialTheme.typography.bodySmall,
@@ -572,7 +818,14 @@ fun SettingsScreen(
 
             // ----------------------------------------------------- reminder reliability
             item {
-                SettingsSection("提醒可靠性", Icons.Filled.HealthAndSafety) {
+                ExpandableSettingsSection(
+                    title = "提醒可靠性",
+                    icon = Icons.Filled.HealthAndSafety,
+                    // The two facts that decide whether a reminder survives an aggressive ROM, plus
+                    // the cadence that bounds a lost alarm.
+                    summary = "自检 ${preferences.heartbeatMinutes} 分钟 · " +
+                        if (preferences.guardServiceEnabled) "守护服务已开" else "守护服务已关",
+                ) {
                     Text(
                         text = "提醒是否准时，取决于下面这些系统状态。应用会自己核对，并给出可执行的建议。",
                         style = MaterialTheme.typography.bodySmall,
@@ -708,7 +961,11 @@ fun SettingsScreen(
 
             // -------------------------------------------------- reminder decision log
             item {
-                SettingsSection("最近的提醒决策", Icons.Filled.Info) {
+                ExpandableSettingsSection(
+                    title = "最近的提醒决策",
+                    icon = Icons.Filled.Info,
+                    summary = if (auditLog.isEmpty()) "暂无记录" else "最近 ${auditLog.size} 条",
+                ) {
                     if (auditLog.isEmpty()) {
                         Text(
                             text = "还没有记录。发生过一次提醒后，这里会显示每次提醒做了什么决定、" +
@@ -730,7 +987,17 @@ fun SettingsScreen(
 
             // ------------------------------------------------- unlock catch-up
             item {
-                SettingsSection("解锁补提醒", Icons.Filled.PhoneAndroid) {
+                ExpandableSettingsSection(
+                    title = "解锁补提醒",
+                    icon = Icons.Filled.PhoneAndroid,
+                    // Names the second chance out loud: this is the one mechanism that catches a dose
+                    // whose alarm fired while nobody was looking.
+                    summary = if (preferences.unlockReminderEnabled) {
+                        "已开启 · 每个药最多 ${preferences.unlockReminderMaxPerDose} 次"
+                    } else {
+                        "已关闭"
+                    },
+                ) {
                     Text(
                         text = "提醒有可能正好落在手机锁屏、装在口袋里的那段时间：闹钟到点了，但没有人看见。" +
                             "开启后，只要你解锁手机（或重新打开药准时），应用会立刻检查所有" +
@@ -818,9 +1085,144 @@ fun SettingsScreen(
                 }
             }
 
+            // ---------------------------------------------------------- 复查提醒
+            //
+            // A review is not a dose: the answer to "吃多久要去复查" is not something the app can know
+            // offline, so this section configures *when to speak up* and hands the actual question to
+            // the browser or to the user's doctor. The app's job stops at not letting them forget.
+            item {
+                val reviewEngine = preferences.reviewEngine
+                val configuredReviews = reviewSnapshots.count { it.progress?.isConfigured == true }
+                val dueReviews = reviewSnapshots.count { it.isDue }
+                ExpandableSettingsSection(
+                    title = "复查提醒",
+                    icon = Icons.Filled.EventAvailable,
+                    summary = if (!preferences.reviewReminderEnabled) {
+                        "已关闭"
+                    } else {
+                        buildString {
+                            append("已开启")
+                            if (preferences.reviewAdvanceNotice > 0) {
+                                append(" · 提前 ${preferences.reviewAdvanceNotice} 次预告")
+                            }
+                            if (configuredReviews > 0) append(" · $configuredReviews 个在跟踪")
+                        }
+                    },
+                    // The due list is a database read, so it is taken when the section is actually
+                    // opened rather than paid for on every visit to the settings tab.
+                    onExpandChanged = { expanded -> if (expanded) viewModel.refreshCacheUsage() },
+                ) {
+                    SwitchRow(
+                        title = "复查提醒",
+                        subtitle = "某种药吃到设定次数或天数时，提醒你该去复查了；没设置过的药不会打扰",
+                        checked = preferences.reviewReminderEnabled,
+                        onCheckedChange = viewModel::setReviewReminderEnabled,
+                    )
+                    if (preferences.reviewReminderEnabled) {
+                        NumberOptionRow(
+                            title = "提前预告",
+                            options = listOf(0, 1, 3, 5, 7, 10),
+                            selected = preferences.reviewAdvanceNotice,
+                            labelOf = { if (it == 0) "关闭预告" else "还差 $it 次" },
+                            onSelect = viewModel::setReviewAdvanceNotice,
+                        )
+                        Text(
+                            text = "复查要提前挂号，所以只在那一天提醒没有用。提前预告会在还差几次时就轻声说一句；" +
+                                "到点后才是那条需要点「我知道了」的红色提醒。",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Spacer(modifier = Modifier.height(6.dp))
+
+                        ChipRow(
+                            title = "搜索用哪个引擎",
+                            options = ReviewSearchEngine.entries,
+                            selected = reviewEngine,
+                            labelOf = { it.label },
+                            onSelect = viewModel::setReviewSearchEngine,
+                        )
+                        // The search stays in the user's own browser: nothing about their
+                        // prescriptions is sent anywhere by this app.
+                        Text(
+                            text = "点「去搜索」时会用这台手机上已安装的浏览器打开，药准时本身不联网，也不会上传你吃了什么药。",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Spacer(modifier = Modifier.height(6.dp))
+
+                        ReviewSearchSuffixField(
+                            initial = preferences.reviewSearchSuffix,
+                            onCommit = viewModel::setReviewSearchSuffix,
+                        )
+                        Text(
+                            text = "会附加在搜索词后面，例如填「高血压」，搜索就变成" +
+                                "「阿司匹林 吃多久需要去复查 高血压」。最多 40 个字。",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "搜索结果是网上的内容，不能代替医生。是否该复查、复查什么项目，" +
+                                "请以开药的医生说的为准——可以把结论填进药品的「复查」里。",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+
+                        Spacer(modifier = Modifier.height(4.dp))
+                        HorizontalDivider()
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        // Read-only by design. Starting a new round or changing a threshold belongs
+                        // next to the medication it describes, where the dose history is; a second
+                        // place to edit it would be a second place to disagree with itself.
+                        Text(
+                            text = "正在跟踪的复查（$configuredReviews 个）",
+                            style = MaterialTheme.typography.bodyLarge,
+                        )
+                        Text(
+                            text = if (dueReviews > 0) {
+                                "其中 $dueReviews 个已经到复查时间了。"
+                            } else {
+                                "还没有到复查时间的药。"
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = if (dueReviews > 0) {
+                                MaterialTheme.colorScheme.error
+                            } else {
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            },
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        if (reviewSnapshots.isEmpty()) {
+                            Text(
+                                text = "还没有药品设置复查提醒。可以到「药品 → 该药 → 复查提醒」里填写：" +
+                                    "吃多久、吃几次，由医生决定，药准时只负责数着。",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        } else {
+                            reviewSnapshots.forEach { snapshot ->
+                                ReviewSnapshotRow(snapshot)
+                            }
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "开始新一轮、修改次数或关闭某个药的提醒，都在那个药的编辑页里操作。" +
+                                    "这里只是把结果列出来，方便一眼看到谁快到了。",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                }
+            }
+
             // ----------------------------------------------------------- appearance
             item {
-                SettingsSection("外观", Icons.Filled.Palette) {
+                ExpandableSettingsSection(
+                    title = "外观",
+                    icon = Icons.Filled.Palette,
+                    summary = "${preferences.themeMode.label} · ${preferences.fontScale.label}字号",
+                ) {
                     ChipRow(
                         title = "主题",
                         options = ThemeMode.entries,
@@ -864,7 +1266,17 @@ fun SettingsScreen(
 
             // -------------------------------------------------------- accessibility
             item {
-                SettingsSection("适老与无障碍", Icons.Filled.Accessibility) {
+                ExpandableSettingsSection(
+                    title = "适老与无障碍",
+                    icon = Icons.Filled.Accessibility,
+                    // "适老已开启" when the bundle is in place, otherwise the thing that actually
+                    // decides how readable the app is - the font size.
+                    summary = if (preferences.highContrast && preferences.simplifiedMode) {
+                        "适老已开启"
+                    } else {
+                        "标准 · ${preferences.fontScale.label}字号"
+                    },
+                ) {
                     ChipRow(
                         title = "字体大小",
                         options = FontScale.entries,
@@ -918,7 +1330,12 @@ fun SettingsScreen(
 
             // ---------------------------------------------------------------- widget
             item {
-                SettingsSection("桌面小组件", Icons.Filled.Widgets) {
+                ExpandableSettingsSection(
+                    title = "桌面小组件",
+                    icon = Icons.Filled.Widgets,
+                    summary = "${preferences.widgetItemLimit} 条 · " +
+                        widgetRefreshLabel(preferences.widgetRefreshSeconds) + "刷新",
+                ) {
                     NumberOptionRow(
                         title = "最多显示条目数",
                         options = listOf(2, 3, 4, 6),
@@ -967,9 +1384,61 @@ fun SettingsScreen(
                 }
             }
 
+            // ------------------------------------------------------- storage & cache
+            //
+            // Sits immediately above 数据与备份 because it is the safe counterpart of it: everything
+            // here can be regenerated, and the section says so, which is what makes it reasonable to
+            // offer a delete button next to the user's actual records.
+            item {
+                ExpandableSettingsSection(
+                    title = "存储与缓存",
+                    icon = Icons.Filled.CleaningServices,
+                    summary = cacheSummary(cacheUsage),
+                ) {
+                    CacheUsageRow(
+                        title = "自定义铃声缓存",
+                        value = cacheUsageValue(cacheUsage),
+                        detail = cacheUsageDetail(cacheUsage),
+                    )
+                    CacheUsageRow(
+                        title = "提醒决策日志",
+                        value = "${cacheUsage.auditEntries} 条",
+                        detail = "记录每次提醒做了什么决定、以及为什么没有提醒。" +
+                            "它只用于排查问题，清空不影响任何提醒或记录。",
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                    CacheUsageRow(
+                        title = "清空提醒日志",
+                        value = "",
+                        detail = "只删日志，不动铃声，也不动任何用药数据。",
+                    )
+                    Spacer(modifier = Modifier.height(2.dp))
+                    AdaptiveButtonRow(modifier = Modifier.fillMaxWidth()) {
+                        Button(
+                            onClick = { confirmingCacheClear = true },
+                            // Tagged because the label is generic and the button is the one control
+                            // the cache tests have to reach reliably.
+                            modifier = Modifier.testTag(MediTrackTestTags.CLEAR_CACHE_BUTTON),
+                        ) { Text("清除缓存") }
+                        TextButton(onClick = viewModel::clearAuditLog) { Text("只清空日志") }
+                    }
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "只会删除可以重新生成的东西：没有被使用的铃声文件，以及提醒日志。" +
+                            "药品、服药时间、服药记录和所有设置都不会被删除。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+
             // ------------------------------------------------------------------ data
             item {
-                SettingsSection("数据", Icons.Filled.Download) {
+                ExpandableSettingsSection(
+                    title = "数据与备份",
+                    icon = Icons.Filled.Download,
+                    summary = if (backups.isEmpty()) "还没有备份" else "已备份 ${backups.size} 份",
+                ) {
                     Text(
                         text = "所有数据都保存在本机，不会上传到任何服务器。" +
                             "全应用只有一处联网：检查新版本（见下方「更新」）。",
@@ -1006,7 +1475,11 @@ fun SettingsScreen(
 
             // ------------------------------------------------------------ backup folder & list
             item {
-                SettingsSection("备份文件夹", Icons.Filled.Folder) {
+                ExpandableSettingsSection(
+                    title = "备份文件夹",
+                    icon = Icons.Filled.Folder,
+                    summary = backupFolder,
+                ) {
                     Text(
                         text = "备份默认存在应用内部，其它应用看不到。选一个你能打开的文件夹" +
                             "（比如「下载」），备份就会直接出现在文件管理器里，也能直接导回来。",
@@ -1059,7 +1532,13 @@ fun SettingsScreen(
             }
 
             item {
-                SettingsSection("本地备份（${backups.size}）", Icons.Filled.Restore) {
+                ExpandableSettingsSection(
+                    title = "本地备份",
+                    icon = Icons.Filled.Restore,
+                    // The count is the useful half of the old title; the position of the folder is
+                    // already named one card above, so it is not repeated here.
+                    summary = if (backups.isEmpty()) "暂无备份" else "${backups.size} 份",
+                ) {
                     if (backups.isEmpty()) {
                         Text(
                             text = "这个文件夹里还没有备份。点上面的「导出 JSON 备份」生成一份。",
@@ -1087,7 +1566,11 @@ fun SettingsScreen(
 
             // ----------------------------------------------------------------- update
             item {
-                SettingsSection("更新", Icons.Filled.SystemUpdate) {
+                ExpandableSettingsSection(
+                    title = "更新",
+                    icon = Icons.Filled.SystemUpdate,
+                    summary = if (preferences.autoUpdateCheck) "启动时自动检查" else "已关闭自动检查",
+                ) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically,
@@ -1120,7 +1603,11 @@ fun SettingsScreen(
 
             // ----------------------------------------------------------------- other
             item {
-                SettingsSection("其他", Icons.Filled.Lock) {
+                ExpandableSettingsSection(
+                    title = "其他",
+                    icon = Icons.Filled.Lock,
+                    summary = if (preferences.appLockEnabled) "应用锁已开" else "应用锁已关",
+                ) {
                     SwitchRow(
                         title = "应用锁",
                         subtitle = "打开应用时需要指纹或锁屏密码",
@@ -1136,6 +1623,7 @@ fun SettingsScreen(
                 }
             }
         }
+    }
     }
 }
 
@@ -1171,6 +1659,268 @@ private fun SettingsSection(
             Spacer(modifier = Modifier.height(8.dp))
             content()
         }
+    }
+}
+
+/**
+ * A section that shows its header and a one-line summary of what is currently set, and reveals its
+ * controls only when tapped.
+ *
+ * ## Why the default is collapsed
+ *
+ * The screen grew to eighteen sections, most of which a given user never changes - and the ones that
+ * *do* matter (a permission that was revoked, an alarm class that slipped to inexact) were buried
+ * under forty switches. Collapsing everything inverts that: the first screenful becomes a table of
+ * contents of the user's own configuration, and every line of it is a fact rather than a control.
+ *
+ * ## Why the summary is mandatory rather than optional
+ *
+ * A collapsed section that says nothing is a section the user has to open to find out whether it is
+ * even relevant, which puts the cost straight back where collapsing was supposed to remove it. The
+ * parameter is therefore not nullable: a caller has to decide what "what is set right now" means for
+ * its own controls, and the answer is almost always short.
+ *
+ * @param title the section label, and the key its expanded state is remembered under
+ * @param icon the leading glyph, matching [SettingsSection] so the two read as the same component
+ * @param summary one short line describing the live values, e.g. "自检 15 分钟 · 守护服务已开"
+ * @param initiallyExpanded only for a section that is useless closed; everything ships collapsed
+ * @param onExpandChanged invoked with the new expanded state, so a caller can lazily load a detail
+ *        that is too expensive to read for every visit to the screen
+ */
+@Composable
+private fun ExpandableSettingsSection(
+    title: String,
+    icon: ImageVector,
+    summary: String,
+    initiallyExpanded: Boolean = false,
+    onExpandChanged: (Boolean) -> Unit = {},
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    // Keyed by title and saveable, so rotating the phone - or coming back from the system Settings
+    // app to grant a permission - does not fold away the section the user just opened. Keying by
+    // title rather than by index matters for the same reason: a section can be added or reordered
+    // without every other section's state moving with it.
+    var expanded by rememberSaveable(title) { mutableStateOf(initiallyExpanded) }
+    // ~180ms: long enough to read as movement rather than a jump cut, short enough that tapping four
+    // sections in a row does not leave the user waiting for the list to settle.
+    val animationSpec = tween<IntSize>(durationMillis = SETTINGS_EXPAND_MILLIS)
+    // The two spoken states of the header. Only the *state* is dynamic; the title comes from the
+    // header's own text, so a screen reader reads "提醒方式，一直响到处理 · 清铃，已展开".
+    val collapsedLabel = stringResource(R.string.settings_section_expand, title)
+    val expandedLabel = stringResource(R.string.settings_section_collapse, title)
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(MaterialTheme.prefs.cardCornerDp.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+        ),
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable {
+                    expanded = !expanded
+                    onExpandChanged(expanded)
+                }
+                .padding(14.dp),
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.semantics {
+                    stateDescription = if (expanded) expandedLabel else collapsedLabel
+                },
+            ) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.padding(end = 8.dp),
+                )
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = title,
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                    // One line, ellipsised rather than wrapped: the summary is a glance, and a
+                    // two-line summary would make the collapsed list as tall as the old expanded one.
+                    Text(
+                        text = summary,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                // The chevron points where the content will go, which is the only affordance a
+                // collapsed card needs. It is decorative here: the whole header is the target, and
+                // the row's own text is what a screen reader announces.
+                Icon(
+                    imageVector = if (expanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier
+                        .padding(start = 8.dp)
+                        .defaultMinSize(
+                            minWidth = MaterialTheme.prefs.minTouchTargetDp.dp,
+                            minHeight = MaterialTheme.prefs.minTouchTargetDp.dp,
+                        ),
+                )
+            }
+            AnimatedVisibility(
+                visible = expanded,
+                enter = expandVertically(animationSpec = animationSpec) + fadeIn(),
+                exit = shrinkVertically(animationSpec = animationSpec) + fadeOut(),
+            ) {
+                // The gap and the padding live *inside* the animated block, so collapsing leaves no
+                // trailing whitespace behind in the list.
+                Column(modifier = Modifier.padding(top = 10.dp)) { content() }
+            }
+        }
+    }
+}
+
+/**
+ * One "what is this costing me" line inside 存储与缓存.
+ *
+ * Deliberately not a [SwitchRow]: there is nothing to toggle, and reusing a row that looks togglable
+ * for a read-only figure is how a user learns to ignore both.
+ */
+@Composable
+private fun CacheUsageRow(
+    title: String,
+    value: String,
+    detail: String,
+) {
+    Column(modifier = Modifier.padding(vertical = 6.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.bodyLarge,
+                modifier = Modifier.weight(1f),
+            )
+            Text(
+                text = value,
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.primary,
+            )
+        }
+        Text(
+            text = detail,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+/**
+ * The free-text suffix appended to every 复查 search.
+ *
+ * Kept as local draft state and committed on every change rather than on a "保存" button: the
+ * repository clamps to [SettingsRepository.MAX_SEARCH_SUFFIX_LENGTH], and a field that silently
+ * refuses the 41st character is less surprising than one that saves a value the user cannot see.
+ */
+@Composable
+private fun ReviewSearchSuffixField(
+    initial: String,
+    onCommit: (String) -> Unit,
+) {
+    // Keyed on the stored value so an edit made elsewhere (an imported backup, say) is reflected, while
+    // typing does not reset the cursor: the key only changes when the *stored* text does.
+    var draft by rememberSaveable(initial) { mutableStateOf(initial) }
+    OutlinedTextField(
+        value = draft,
+        onValueChange = { text ->
+            // Hard-stopped at the same length the repository clamps to, so the user is never shown a
+            // value that will not survive the write.
+            draft = text.take(SettingsRepository.MAX_SEARCH_SUFFIX_LENGTH)
+            onCommit(draft)
+        },
+        label = { Text("搜索附加词") },
+        placeholder = { Text("例如：高血压") },
+        singleLine = true,
+        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+        modifier = Modifier.fillMaxWidth(),
+    )
+}
+
+/**
+ * One medication's line in the read-only 复查 list.
+ *
+ * Read-only on purpose: a round is started and a threshold is changed next to the dose history they
+ * describe, and a second place to edit them would be a second place for the two to disagree.
+ */
+@Composable
+private fun ReviewSnapshotRow(snapshot: MedicationReviewSnapshot) {
+    val progress = snapshot.progress
+    Column(modifier = Modifier.padding(vertical = 5.dp)) {
+        Text(
+            text = snapshot.medication.name + " · " + (progress?.reachedLabel ?: "已服用 0 次"),
+            style = MaterialTheme.typography.bodyMedium,
+            color = if (snapshot.isDue) {
+                MaterialTheme.colorScheme.error
+            } else {
+                MaterialTheme.colorScheme.onSurface
+            },
+        )
+        Text(
+            text = progress?.progressLabel ?: "未设置复查提醒",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+/**
+ * The 免打扰时段 summary: the window in words, or the fact that there is no window.
+ *
+ * The times are formatted with the user's own 24-hour preference, because a summary that disagreed
+ * with the chips one tap below it would read as a bug.
+ */
+private fun quietHoursSummary(preferences: UserPreferences): String {
+    if (!preferences.quietHoursEnabled) return "已关闭"
+    val start = DateTimeUtils.formatMinuteOfDay(
+        preferences.quietHoursStartMinute,
+        preferences.use24HourFormat,
+    )
+    val end = DateTimeUtils.formatMinuteOfDay(
+        preferences.quietHoursEndMinute,
+        preferences.use24HourFormat,
+    )
+    return "$start - $end · " + if (preferences.quietHoursDeferEnabled) "顺延" else "静默"
+}
+
+/** "30 秒" / "5 分钟" - the widget summary's cadence, matching the chips in that section. */
+private fun widgetRefreshLabel(seconds: Int): String =
+    if (seconds < 60) "$seconds 秒" else "${seconds / 60} 分钟"
+
+/** How many 存储与缓存 bytes show in the collapsed header. */
+private fun cacheSummary(usage: CacheUsage): String = buildString {
+    append(formatBytes(usage.bytes))
+    append(" · ${usage.clipCount} 个片段")
+    if (usage.auditEntries > 0) append(" · 日志 ${usage.auditEntries} 条")
+}
+
+/** The clip line's headline: "1.2 MB（3 个片段）". */
+private fun cacheUsageValue(usage: CacheUsage): String =
+    "${formatBytes(usage.bytes)}（${usage.clipCount} 个片段）"
+
+/**
+ * The clip line's detail.
+ *
+ * The in-use count is the number that decides whether pressing 清除缓存 does anything at all, so it is
+ * spelled out rather than left to the confirmation dialog.
+ */
+private fun cacheUsageDetail(usage: CacheUsage): String {
+    if (usage.clipCount == 0) return "还没有自定义铃声；清除缓存不会影响内置铃声。"
+    val unused = usage.clipCount - usage.inUseCount
+    return if (unused == 0) {
+        "其中 ${usage.inUseCount} 个仍在使用，没有可清除的片段。"
+    } else {
+        "其中 ${usage.inUseCount} 个仍在使用，$unused 个可清除。"
     }
 }
 

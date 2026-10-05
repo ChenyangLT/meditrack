@@ -9,14 +9,21 @@ import android.provider.Settings
 import androidx.core.app.NotificationManagerCompat
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.meditrack.data.prefs.AGREEMENT_VERSION
 import com.meditrack.data.prefs.AccentColor
 import com.meditrack.data.prefs.FontScale
 import com.meditrack.data.prefs.SettingsRepository
 import com.meditrack.data.prefs.ThemeMode
 import com.meditrack.data.prefs.UserPreferences
 import com.meditrack.data.prefs.WeekStart
+import com.meditrack.data.local.entity.ReviewSearchEngine
 import com.meditrack.data.repository.DoseRepository
+import com.meditrack.data.repository.MedicationReviewSnapshot
+import com.meditrack.data.repository.ReviewRepository
+import com.meditrack.data.repository.RingClipRepository
+import com.meditrack.domain.reminder.ReminderRingMode
 import com.meditrack.core.util.DateTimeUtils
+import com.meditrack.core.util.QuantityFormatter
 import com.meditrack.data.backup.BackupEntry
 import com.meditrack.data.backup.BackupFolder
 import com.meditrack.data.backup.BackupRepository
@@ -29,6 +36,8 @@ import com.meditrack.data.update.UpdateCheckResult
 import com.meditrack.data.update.UpdateInfo
 import com.meditrack.data.update.UpdateRepository
 import com.meditrack.data.local.entity.ReminderEvent
+import com.meditrack.data.local.entity.RingClip
+import com.meditrack.data.local.dao.ReminderEventDao
 import com.meditrack.domain.reminder.ReminderAudit
 import com.meditrack.domain.reminder.ReminderEngine
 import com.meditrack.domain.reminder.ReminderGuardService
@@ -75,6 +84,25 @@ data class PermissionSnapshot(
             .count { it == PermissionStatus.DENIED }
 }
 
+/**
+ * How much regenerable data the app is currently holding, for 设置 → 存储与缓存.
+ *
+ * The four numbers are what the two "what would clearing free?" lines are built from. They are a
+ * *snapshot* rather than a flow over the filesystem: nothing observes a directory, so the screen
+ * re-reads them on resume and after a clear, and "1.2 MB" is allowed to be a second out of date.
+ *
+ * @param clipCount every custom ringtone clip row that exists, in use or not
+ * @param inUseCount how many of them something still references - the ones a clear must not touch
+ * @param bytes total size of the clip files on disk, which is the number a user means by "缓存占用"
+ * @param auditEntries rows in the reminder decision log, all of which a clear removes
+ */
+data class CacheUsage(
+    val clipCount: Int = 0,
+    val inUseCount: Int = 0,
+    val bytes: Long = 0L,
+    val auditEntries: Int = 0,
+)
+
 @HiltViewModel
 class SettingsViewModel @Inject constructor(
     private val settingsRepository: SettingsRepository,
@@ -87,6 +115,16 @@ class SettingsViewModel @Inject constructor(
     private val backupStore: BackupStore,
     private val updateRepository: UpdateRepository,
     private val notifier: DoseNotifier,
+    private val ringClipRepository: RingClipRepository,
+    private val reviewRepository: ReviewRepository,
+    /**
+     * Injected directly for the one operation [ReminderAudit] does not expose: emptying the log.
+     *
+     * The audit class deliberately only knows how to *record* and *bound* the trail - an audit that
+     * can be erased from inside the pipeline is not much of an audit - so the explicit human act of
+     * 清除缓存 is the one caller that reaches for the DAO itself.
+     */
+    private val reminderEventDao: ReminderEventDao,
     private val app: android.app.Application,
 ) : ViewModel() {
 
@@ -147,6 +185,117 @@ class SettingsViewModel @Inject constructor(
                 _backups.value = backupStore.list()
             }
         }
+    }
+
+    // --------------------------------------------------------- 存储与缓存 / cache
+
+    private val _cacheUsage = MutableStateFlow(CacheUsage())
+    /** What 清除缓存 would report before and after it runs; see [CacheUsage]. */
+    val cacheUsage: StateFlow<CacheUsage> = _cacheUsage.asStateFlow()
+
+    /**
+     * The custom ringtones that already exist, so the collapsed 提醒方式 summary can name the one in
+     * use instead of printing a row id nobody has ever seen.
+     */
+    private val _ringClips = MutableStateFlow<List<RingClip>>(emptyList())
+    val ringClips: StateFlow<List<RingClip>> = _ringClips.asStateFlow()
+
+    /**
+     * Every medication that has a 复查 round configured, with where it stands.
+     *
+     * Read rather than observed because the list is a detail *inside* a collapsed section - it is only
+     * looked at while the user has 复查提醒 open, and a database observation would be paid for by every
+     * visit to the settings tab.
+     */
+    private val _reviewSnapshots = MutableStateFlow<List<MedicationReviewSnapshot>>(emptyList())
+    val reviewSnapshots: StateFlow<List<MedicationReviewSnapshot>> = _reviewSnapshots.asStateFlow()
+
+    /**
+     * Re-reads the cache figures.
+     *
+     * [RingClipRepository.refreshInUse] runs first on purpose: "still in use" is a denormalised column,
+     * and the confirmation dialog promises that the in-use clips survive - so the number the dialog
+     * shows has to be the number the clear itself will compute, not a stale one.
+     */
+    fun refreshCacheUsage() {
+        viewModelScope.launch {
+            runCatching {
+                ringClipRepository.refreshInUse()
+                val (count, inUse) = ringClipRepository.counts()
+                _cacheUsage.value = CacheUsage(
+                    clipCount = count,
+                    inUseCount = inUse,
+                    bytes = ringClipRepository.cacheSize(),
+                    auditEntries = reminderAudit.recent(AUDIT_COUNT_LIMIT).size,
+                )
+                _ringClips.value = ringClipRepository.all()
+                _reviewSnapshots.value = reviewRepository.snapshots()
+            }
+        }
+    }
+
+    /**
+     * Deletes everything the app can rebuild, and says what it freed.
+     *
+     * Two rules decide what is in scope, and they are the whole reason this is safe to offer next to
+     * 数据与备份: regenerable data may go, user data may not. A clip file is regenerable from the source
+     * the clip remembers *only while its row exists*, so the rows stay and only the audio of the ones
+     * nothing references is removed - which means the picker still lists every clip and one tap
+     * re-renders it. The decision log is a diagnostic, not a record of what was taken.
+     *
+     * What is deliberately untouched: medications, schedules, dose records, backups, and every
+     * preference. Those are the things whose loss would be a data loss rather than an inconvenience.
+     */
+    fun clearCache() {
+        viewModelScope.launch {
+            runCatching {
+                val clips = ringClipRepository.clearUnusedCache()
+                val logEntries = _cacheUsage.value.auditEntries
+                reminderEventDao.deleteAll()
+                _auditLog.value = emptyList()
+                _message.value = describeCacheClear(clips, logEntries)
+            }.onFailure {
+                _message.value = "清除缓存失败：${it.message ?: "未知错误"}"
+            }
+            refreshCacheUsage()
+            refreshHealthInternal()
+        }
+    }
+
+    /** Empties the reminder decision log on its own; the log is a diagnostic, never a record. */
+    fun clearAuditLog() {
+        viewModelScope.launch {
+            runCatching {
+                reminderEventDao.deleteAll()
+                _auditLog.value = emptyList()
+                _message.value = "提醒日志已清空"
+            }.onFailure {
+                _message.value = "清空提醒日志失败：${it.message ?: "未知错误"}"
+            }
+            refreshCacheUsage()
+            refreshHealthInternal()
+        }
+    }
+
+    /**
+     * The one line the 清除缓存 snackbar shows.
+     *
+     * Written as a sentence rather than a number dump because the two halves can each be a no-op -
+     * there may be no unused clip, and the log may already be empty - and "释放 0 B" reads like a
+     * failure rather than like "there was nothing to do".
+     */
+    private fun describeCacheClear(
+        clips: RingClipRepository.CacheClearResult,
+        logEntries: Int,
+    ): String = buildString {
+        if (clips.isEmpty) {
+            append("没有可清除的铃声缓存")
+        } else {
+            append("已清除 ${clips.clipFiles} 个铃声片段，释放 ${formatCacheBytes(clips.bytesFreed)}")
+        }
+        append(
+            if (logEntries > 0) "；提醒日志已清空 $logEntries 条" else "；提醒日志本来就是空的"
+        )
     }
 
     /**
@@ -464,6 +613,60 @@ class SettingsViewModel @Inject constructor(
     fun setSnoozeStateNotificationEnabled(value: Boolean) =
         update { settingsRepository.setSnoozeStateNotificationEnabled(value) }
 
+    // ------------------------------------------------- «持续响铃» / ring behaviour
+    //
+    // None of these reschedules anything. The ringing session is built when a reminder is actually
+    // announced from the preferences *at that moment*, so a change applies to the next reminder by
+    // construction - and re-arming every alarm to change how loudly the next one rings would be a
+    // lot of work for no observable difference.
+
+    fun setRingMode(mode: ReminderRingMode) = update { settingsRepository.setRingMode(mode) }
+
+    fun setRingMaxMinutes(minutes: Int) = update { settingsRepository.setRingMaxMinutes(minutes) }
+
+    fun setRingTimes(count: Int) = update { settingsRepository.setRingTimes(count) }
+
+    fun setRingIntervalSeconds(seconds: Int) =
+        update { settingsRepository.setRingIntervalSeconds(seconds) }
+
+    /**
+     * Chooses the custom clip the reminder uses globally, or null for the bundled tone.
+     *
+     * Routed through the repository rather than the preference alone so the clips' `inUse` flags are
+     * recomputed in the same pass. Those flags are what decide whether a clip's audio is a
+     * 清除缓存 candidate, and a selected clip whose flag was stale would be deleted out from under the
+     * next reminder.
+     */
+    fun setRingClipId(id: Long?) = update {
+        ringClipRepository.selectGlobal(id)
+        refreshCacheUsage()
+    }
+
+    // ---------------------------------------------------------- «复查提醒» / review
+
+    /**
+     * The global switch for the follow-up review reminders.
+     *
+     * Reconciled rather than merely stored: the review notices are produced by the same pass that
+     * arms dose alarms, so switching this off has to tear down the notices already scheduled - and
+     * switching it back on has to produce them now rather than at the next heartbeat.
+     */
+    fun setReviewReminderEnabled(value: Boolean) = update {
+        settingsRepository.setReviewReminderEnabled(value)
+        rescheduleEverything()
+    }
+
+    fun setReviewAdvanceNotice(units: Int) = update {
+        settingsRepository.setReviewAdvanceNotice(units)
+        rescheduleEverything()
+    }
+
+    fun setReviewSearchEngine(engine: ReviewSearchEngine) =
+        update { settingsRepository.setReviewSearchEngine(engine) }
+
+    fun setReviewSearchSuffix(suffix: String) =
+        update { settingsRepository.setReviewSearchSuffix(suffix) }
+
     fun setQuietHoursDeferEnabled(value: Boolean) = update {
         settingsRepository.setQuietHoursDeferEnabled(value)
         rescheduleEverything()
@@ -629,6 +832,22 @@ class SettingsViewModel @Inject constructor(
         update { settingsRepository.setOnboardingCompleted(completed) }
     fun setConfirmOverDose(value: Boolean) = update { settingsRepository.setConfirmOverDose(value) }
 
+    /**
+     * Records that the user signed the 《用户协议》 and read the 《使用说明》.
+     *
+     * Writes the current [AGREEMENT_VERSION] rather than `true`, so a materially changed agreement can be
+     * shown again by bumping the constant - while every ordinary release shows nothing, which is what
+     * "sign once, never again, including across updates" requires.
+     */
+    fun acceptAgreement() = update {
+        settingsRepository.setAgreementAcceptedVersion(AGREEMENT_VERSION)
+    }
+
+    /** Puts the agreement back in front of the user; reachable from 设置 → 其他. */
+    fun showAgreementAgain() = update {
+        settingsRepository.setAgreementAcceptedVersion(0)
+    }
+
     /** The one-tap accessibility bundle: big text, high contrast, fewer layers, reminders on. */
     fun applyElderlyPreset() = update {
         settingsRepository.applyElderlyPreset()
@@ -657,6 +876,19 @@ class SettingsViewModel @Inject constructor(
 
     private suspend fun refreshHealthInternal() {
         runCatching { _health.value = healthChecker.check() }
+    }
+
+    /**
+     * Human sizes for the cache lines.
+     *
+     * Deliberately a copy of the screen's `formatBytes` rather than a call to it: that one is an
+     * internal composable-file helper, and a ViewModel reaching into a UI file for string formatting
+     * would invert the dependency for the sake of eleven lines.
+     */
+    private fun formatCacheBytes(bytes: Long): String = when {
+        bytes >= 1024L * 1024L -> String.format("%.1f MB", bytes / 1024.0 / 1024.0)
+        bytes >= 1024L -> "${bytes / 1024} KB"
+        else -> "$bytes B"
     }
 
     private fun update(block: suspend () -> Unit) {
@@ -736,6 +968,15 @@ class SettingsViewModel @Inject constructor(
     companion object {
         /** How many audit entries the self-check screen shows. */
         const val AUDIT_LOG_LIMIT = 20
+
+        /**
+         * How many audit rows the cache figures count.
+         *
+         * Far above [AUDIT_LOG_LIMIT] because this is a *count* rather than a list: the trail is
+         * bounded at [ReminderAudit.DEFAULT_RETENTION] rows, so reading that window gives the true
+         * total without needing a `COUNT(*)` the DAO does not offer.
+         */
+        const val AUDIT_COUNT_LIMIT = ReminderAudit.DEFAULT_RETENTION
 
         /** Permission keys used by [permissionIntent]. */
         const val KEY_NOTIFICATIONS = "notifications"

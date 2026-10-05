@@ -11,10 +11,14 @@ import com.meditrack.data.local.dao.DoseLogDao
 import com.meditrack.data.local.dao.HomeWidgetDao
 import com.meditrack.data.local.dao.MedicationDao
 import com.meditrack.data.local.dao.ReminderEventDao
+import com.meditrack.data.local.dao.ReviewCycleDao
+import com.meditrack.data.local.dao.RingClipDao
 import com.meditrack.data.local.entity.DoseEvent
 import com.meditrack.data.local.entity.DoseLog
 import com.meditrack.data.local.entity.Medication
+import com.meditrack.data.local.entity.MedicationReviewCycle
 import com.meditrack.data.local.entity.ReminderEvent
+import com.meditrack.data.local.entity.RingClip
 import com.meditrack.data.local.entity.Schedule
 
 /**
@@ -31,8 +35,10 @@ import com.meditrack.data.local.entity.Schedule
         DoseLog::class,
         DoseEvent::class,
         ReminderEvent::class,
+        MedicationReviewCycle::class,
+        RingClip::class,
     ],
-    version = 4,
+    version = 5,
     exportSchema = true,
 )
 @TypeConverters(Converters::class)
@@ -42,6 +48,8 @@ abstract class MediTrackDatabase : RoomDatabase() {
     abstract fun doseLogDao(): DoseLogDao
     abstract fun homeWidgetDao(): HomeWidgetDao
     abstract fun reminderEventDao(): ReminderEventDao
+    abstract fun reviewCycleDao(): ReviewCycleDao
+    abstract fun ringClipDao(): RingClipDao
 
     companion object {
         const val DATABASE_NAME = "meditrack.db"
@@ -142,6 +150,95 @@ abstract class MediTrackDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * v4 -> v5, the «复查提醒» release.
+         *
+         * One new table, and nothing else: every existing table keeps its exact shape, so a user
+         * upgrading with six months of history keeps all of it. That is the whole reason the review
+         * round is a table of its own rather than columns bolted onto `medications` - adding columns
+         * would have been equally additive, but it would have made "when was the last review, and how
+         * long was that round" unanswerable.
+         *
+         * No backfill is needed or wanted: an empty table means "no medication has a review round
+         * configured", which is exactly the historical truth. The feature is opt-in per medication,
+         * so nothing starts firing on upgrade.
+         *
+         * `IF NOT EXISTS` on every statement because a migration that is re-run after a partially
+         * applied upgrade must not corrupt the user's data.
+         */
+        val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // ---------------------------------------------------------- «复查提醒»
+                //
+                // Four additive columns. The defaults are the honest historical values: `reviewThreshold
+                // = 0` means "no follow-up configured", which is true of every row that exists at
+                // upgrade time, so nothing starts firing because of an upgrade. `reviewReminderEnabled
+                // = 1` is the arming switch, and leaving it on is correct precisely because the
+                // threshold gate makes it inert.
+                db.execSQL(
+                    "ALTER TABLE medications ADD COLUMN reviewReminderEnabled INTEGER NOT NULL DEFAULT 1"
+                )
+                db.execSQL("ALTER TABLE medications ADD COLUMN reviewNote TEXT NOT NULL DEFAULT ''")
+                db.execSQL(
+                    "ALTER TABLE medications ADD COLUMN reviewSearchQuery TEXT NOT NULL " +
+                        "DEFAULT '吃多久需要去复查'"
+                )
+                db.execSQL(
+                    "ALTER TABLE medications ADD COLUMN reviewCountMode TEXT NOT NULL DEFAULT 'DOSES'"
+                )
+                db.execSQL(
+                    "ALTER TABLE medications ADD COLUMN reviewThreshold REAL NOT NULL DEFAULT 0"
+                )
+                // Per-medication ringtone override, added in the same release.
+                db.execSQL("ALTER TABLE medications ADD COLUMN customRingClipId INTEGER")
+
+                // ------------------------------------------------- 复查 rounds (new table)
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `medication_review_cycles` (" +
+                        "`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                        "`medicationId` INTEGER NOT NULL, " +
+                        "`round` INTEGER NOT NULL, " +
+                        "`startedAtMillis` INTEGER NOT NULL, " +
+                        "`startedEpochDay` INTEGER NOT NULL, " +
+                        "`countMode` TEXT NOT NULL DEFAULT 'DOSES', " +
+                        "`threshold` REAL NOT NULL, " +
+                        "`count` REAL NOT NULL, " +
+                        "`countedEpochDay` INTEGER NOT NULL, " +
+                        "`reachedNotified` INTEGER NOT NULL DEFAULT 0, " +
+                        "`advanceNotifiedEpochDay` INTEGER NOT NULL DEFAULT 0, " +
+                        "`acknowledgedAtMillis` INTEGER, " +
+                        "`acknowledgedEpochDay` INTEGER, " +
+                        "`createdAt` INTEGER NOT NULL, " +
+                        "`updatedAt` INTEGER NOT NULL, " +
+                        "FOREIGN KEY(`medicationId`) REFERENCES `medications`(`id`) " +
+                        "ON UPDATE NO ACTION ON DELETE CASCADE )"
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_medication_review_cycles_medicationId` " +
+                        "ON `medication_review_cycles` (`medicationId`)"
+                )
+
+                // ------------------------------------------------- user-created ringtones (new table)
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `ring_clips` (" +
+                        "`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                        "`name` TEXT NOT NULL, " +
+                        "`filePath` TEXT NOT NULL, " +
+                        "`durationMillis` INTEGER NOT NULL, " +
+                        "`sourceLabel` TEXT NOT NULL, " +
+                        "`sourceUri` TEXT, " +
+                        "`trimStartMillis` INTEGER NOT NULL, " +
+                        "`trimEndMillis` INTEGER NOT NULL, " +
+                        "`inUse` INTEGER NOT NULL, " +
+                        "`createdAt` INTEGER NOT NULL)"
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_ring_clips_createdAt` " +
+                        "ON `ring_clips` (`createdAt`)"
+                )
+            }
+        }
+
         @Volatile
         private var INSTANCE: MediTrackDatabase? = null
 
@@ -157,7 +254,7 @@ abstract class MediTrackDatabase : RoomDatabase() {
         fun build(context: Context): MediTrackDatabase =
             Room.databaseBuilder(context, MediTrackDatabase::class.java, DATABASE_NAME)
                 .addCallback(CALLBACK)
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
                 // No destructive fallback on purpose: silently wiping a medication history to
                 // recover from a schema mistake would be far worse than a visible crash, so a
                 // missing migration must surface loudly during development.

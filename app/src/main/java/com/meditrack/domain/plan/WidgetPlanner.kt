@@ -65,6 +65,17 @@ data class WidgetDoseItem(
     val iconName: String,
     val allowsFraction: Boolean,
     val epochDay: Long,
+    /**
+     * The «复查» line for this dose's medication, or null when nothing is configured.
+     *
+     * Rendered as a third line inside the row's text column, e.g. "复查：还差 3 次" or "该复查了". It is
+     * carried per *row* rather than as a separate tile section because the requirement is that the review
+     * travels with the medication it belongs to - a user glancing at the widget should see "阿司匹林 …
+     * 复查：还差 3 次" and not have to match two lists against each other.
+     */
+    val reviewLabel: String? = null,
+    /** True when [reviewLabel] is the "该复查了" state, so the row can colour it as a warning. */
+    val reviewDue: Boolean = false,
 )
 
 /** The full payload the widget renders for one refresh. */
@@ -107,7 +118,12 @@ data class WidgetContent(
                 .append(item.statusLabel).append(':')
                 .append(item.timeLabel).append(':')
                 .append(item.quantityLabel).append(':')
-                .append(item.name).append(';')
+                .append(item.name).append(':')
+                // The review line is part of what the tile shows, so it has to be part of what makes the
+                // tile redraw - otherwise a round reaching its threshold would not repaint the widget
+                // until something unrelated changed.
+                .append(item.reviewLabel.orEmpty()).append(':')
+                .append(item.reviewDue).append(';')
         }
     }
 }
@@ -226,6 +242,15 @@ object WidgetPlanner {
         val colorTag: String,
         val icon: String,
         val allowsFraction: Boolean,
+        /**
+         * The medication's «复查» state, resolved once per medication by the caller.
+         *
+         * A separate value rather than extra columns on this row for two reasons: the review belongs to a
+         * *medication* while this row is one *dose* of it, so duplicating it per dose would be wrong as
+         * well as wasteful; and keeping it out of the DAO projection means the widget keeps working
+         * unchanged for a database that has no review data at all.
+         */
+        val review: WidgetReview? = null,
     ) {
         fun toItem(use24Hour: Boolean, nowMillis: Long): WidgetDoseItem {
             val priority = priorityOf(status, plannedTimeMillis, nowMillis)
@@ -263,7 +288,21 @@ object WidgetPlanner {
                 iconName = icon,
                 allowsFraction = allowsFraction,
                 epochDay = epochDay,
+                reviewLabel = review?.label,
+                reviewDue = review?.isDue == true,
             )
         }
     }
 }
+
+/**
+ * A medication's «复查» state, as the widget and the planner need it.
+ *
+ * Resolved by the caller from the review repository and hung off every row of that medication, so the
+ * planner itself stays free of both Room and the review rules - it only formats what it is given.
+ *
+ * @param label the line to draw, e.g. "复查：还差 3 次" or "该复查了"
+ * @param isDue true when the threshold has been reached, so the row can colour the line as a warning
+ */
+data class WidgetReview(val label: String, val isDue: Boolean)
+

@@ -8,6 +8,8 @@ import com.meditrack.data.local.dao.DoseLogDao
 import com.meditrack.data.local.dao.HomeWidgetDao
 import com.meditrack.data.local.dao.MedicationDao
 import com.meditrack.data.local.dao.ReminderEventDao
+import com.meditrack.data.local.dao.ReviewCycleDao
+import com.meditrack.data.local.dao.RingClipDao
 import com.meditrack.data.prefs.settingsDataStore
 import com.meditrack.data.repository.WidgetUpdater
 import com.meditrack.data.repository.WidgetUpdaterImpl
@@ -48,6 +50,12 @@ object AppModule {
 
     @Provides
     fun provideReminderEventDao(db: MediTrackDatabase): ReminderEventDao = db.reminderEventDao()
+
+    @Provides
+    fun provideReviewCycleDao(db: MediTrackDatabase): ReviewCycleDao = db.reviewCycleDao()
+
+    @Provides
+    fun provideRingClipDao(db: MediTrackDatabase): RingClipDao = db.ringClipDao()
 
     @Provides
     @Singleton
