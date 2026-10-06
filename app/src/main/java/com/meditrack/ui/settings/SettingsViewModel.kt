@@ -1,5 +1,6 @@
 package com.meditrack.ui.settings
 
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
@@ -828,6 +829,66 @@ class SettingsViewModel @Inject constructor(
 
     fun setAppLock(value: Boolean) = update { settingsRepository.setAppLockEnabled(value) }
 
+    // -------------------------------------------------------- developer options
+
+    /**
+     * 调试模式: verbose diagnostics that a *release* build can be asked to switch on.
+     *
+     * No `BuildConfig.DEBUG` gate, here or anywhere on this path, and no rescheduling: the switch only
+     * decides how much the reminder pipeline writes down, so the next decision is logged with it. The
+     * snackbar repeats what the subtitle says because the switch sits inside a section the user had to
+     * unlock - confirmation that the gate let them through is worth one line.
+     */
+    fun setDeveloperDebugMode(enabled: Boolean) = update {
+        settingsRepository.setDeveloperDebugMode(enabled)
+        _message.value = if (enabled) "已开启调试模式：会写入详细日志" else "已关闭调试模式"
+    }
+
+    /**
+     * 演示模式: the app shows a fixed example prescription for the next 24 hours.
+     *
+     * The window itself is owned by [SettingsRepository.setDemoMode], so nothing here computes a
+     * duration - and nothing has to be rescheduled, because demo doses are never persisted and
+     * therefore never armed. The message names both ways out (the timer and the home screen's button)
+     * because the realistic failure with a demo mode is forgetting it is on.
+     */
+    fun setDemoMode(enabled: Boolean) = update {
+        settingsRepository.setDemoMode(enabled)
+        _message.value = if (enabled) {
+            "已开启演示模式：24 小时后自动结束，也可在今日用药里退出"
+        } else {
+            "已退出演示模式"
+        }
+    }
+
+    /**
+     * Opens the screen where the user can put a lock in front of this app.
+     *
+     * The app implements no lock of its own - no password, no biometric check - so this does not
+     * authenticate anything; it hands the decision to the system, which is where an app lock belongs
+     * (see the 文案与术语规范, 2.7). The old 应用锁 switch wrote a preference nothing ever read, which is
+     * exactly the kind of control that teaches a user their settings do not do anything.
+     *
+     * Candidates are tried in decreasing order of precision, one `runCatching` each so that a vendor
+     * page absent from this ROM cannot stop the next candidate from being tried:
+     *  1. a known vendor app-lock page ([APP_LOCK_COMPONENTS]);
+     *  2. the system security settings page, which every Android has;
+     *  3. the top-level settings page, as the last resort.
+     *
+     * A failure at every step ends in a snackbar that names what to search for, because "nothing
+     * happened" is the one outcome a user cannot act on.
+     */
+    fun openAppLockSettings(context: Context) {
+        val candidates = APP_LOCK_COMPONENTS.map { Intent().setComponent(it) } + listOf(
+            Intent(Settings.ACTION_SECURITY_SETTINGS),
+            Intent(Settings.ACTION_SETTINGS),
+        )
+        val opened = candidates.any { intent -> runCatching { context.startActivity(intent) }.isSuccess }
+        if (!opened) {
+            _message.value = "无法打开系统设置，请在系统设置里搜索「应用锁」"
+        }
+    }
+
     fun setOnboardingCompleted(completed: Boolean) =
         update { settingsRepository.setOnboardingCompleted(completed) }
     fun setConfirmOverDose(value: Boolean) = update { settingsRepository.setConfirmOverDose(value) }
@@ -982,5 +1043,30 @@ class SettingsViewModel @Inject constructor(
         const val KEY_NOTIFICATIONS = "notifications"
         const val KEY_EXACT_ALARM = "exact_alarm"
         const val KEY_BATTERY = "battery"
+
+        /**
+         * Vendor ROMs whose own app-lock page is worth trying before the generic security screen.
+         *
+         * Deliberately two entries and not a long table. There is no public API for "the app lock", so
+         * every entry is a guess about another app's internals: a wrong component costs one caught
+         * exception and falls through to the system page, while a *stale* one is indistinguishable from
+         * a correct one without the device in hand. The list is therefore limited to the entries that
+         * are actually reported, and the fallback chain - not this list - is what makes the row work.
+         *
+         *  - `com.android.settings` / `Settings$AppLockSettingsActivity`: the page some AOSP-derived
+         *    builds ship, and the one the ROM vendors most often leave in place.
+         *  - `com.miui.securitycenter` / `...applock.PasswordSettingsActivity`: MIUI's app lock, which
+         *    lives in the security centre rather than in Settings.
+         */
+        private val APP_LOCK_COMPONENTS = listOf(
+            ComponentName(
+                "com.android.settings",
+                "com.android.settings.Settings\$AppLockSettingsActivity",
+            ),
+            ComponentName(
+                "com.miui.securitycenter",
+                "com.miui.securitycenter.applock.PasswordSettingsActivity",
+            ),
+        )
     }
 }

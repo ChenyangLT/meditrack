@@ -11,7 +11,11 @@ import com.meditrack.data.local.entity.DoseEventType
 import com.meditrack.data.local.entity.DoseLog
 import com.meditrack.data.local.entity.DoseLogWithMedication
 import com.meditrack.data.local.entity.DoseStatus
+import com.meditrack.data.local.entity.MedicationWithSchedules
+import com.meditrack.data.local.entity.RepeatingRule
+import com.meditrack.data.local.entity.Schedule
 import com.meditrack.data.prefs.SettingsRepository
+import com.meditrack.domain.demo.DemoModeContent
 import com.meditrack.domain.plan.DayPlanner
 import com.meditrack.domain.plan.DoseView
 import com.meditrack.domain.plan.PlannedDose
@@ -93,6 +97,16 @@ class DoseRepository @Inject constructor(
      * planned doses for the day, and re-derives every status from the current clock. Because each
      * underlying Room query is a Flow, the list updates the instant a notification action or a
      * widget tap writes to the database.
+     *
+     * ## Where 演示模式 enters
+     *
+     * The example prescription is appended to *the planner's input list* while
+     * [com.meditrack.data.prefs.UserPreferences.isDemoModeActive] is true, and nowhere else. That is
+     * deliberate: this function is a pure projection, so a demo dose can only ever become a rendered
+     * [DoseView] - it has no stored row, so its `doseId` is 0, and every write path re-creates rows
+     * from the database rather than from this list. The demo flag is read from the same preferences
+     * emission that already drives the 24-hour format, so enabling or ending demo mode re-renders the
+     * day immediately without any extra plumbing.
      */
     fun observeDay(epochDay: Long = DateTimeUtils.todayEpochDay()): Flow<DayState> {
         return combine(
@@ -101,28 +115,30 @@ class DoseRepository @Inject constructor(
             settingsRepository.preferences,
         ) { stored, medications, prefs ->
             val storedByKey = stored.associateBy { it.dose.scheduleId to it.dose.epochDay }
-            val medById = medications.associateBy { it.medication.id }
             val now = System.currentTimeMillis()
 
-            val planned = DayPlanner.plan(
-                medications = medications.map { mws ->
-                    com.meditrack.data.local.entity.MedicationWithSchedules(
-                        medication = mws.medication,
-                        schedules = mws.schedules.map { s ->
-                            com.meditrack.data.local.entity.Schedule(
-                                id = s.id,
-                                medicationId = mws.medication.id,
-                                minuteOfDay = s.minuteOfDay,
-                                repeatRule = s.repeatRule,
-                                startEpochDay = s.startEpochDay,
-                                endEpochDay = s.endEpochDay,
-                                reminderEnabled = s.reminderEnabled,
-                            )
-                        },
-                    )
-                },
-                epochDay = epochDay,
-            )
+            // The user's own medications first, then the samples: `DayPlanner.plan` sorts its output
+            // by time, so concatenating rather than merging is enough.
+            val plannedInputs = medications.map { mws ->
+                MedicationWithSchedules(
+                    medication = mws.medication,
+                    schedules = mws.schedules.map { s ->
+                        Schedule(
+                            id = s.id,
+                            medicationId = mws.medication.id,
+                            minuteOfDay = s.minuteOfDay,
+                            repeatRule = s.repeatRule,
+                            startEpochDay = s.startEpochDay,
+                            endEpochDay = s.endEpochDay,
+                            reminderEnabled = s.reminderEnabled,
+                        )
+                    },
+                )
+            } + if (prefs.isDemoModeActive(now)) demoMedicationInputs() else emptyList()
+
+            val medById = plannedInputs.associateBy { it.medication.id }
+
+            val planned = DayPlanner.plan(plannedInputs, epochDay)
 
             val views = ArrayList<DoseView>(planned.size)
             for (p in planned) {
@@ -222,6 +238,11 @@ class DoseRepository @Inject constructor(
         val toInsert = ArrayList<DoseLog>(planned.size)
 
         for (p in planned) {
+            // 演示模式 never writes. The samples are only ever added to `observeDay`'s planner input, so
+            // this cannot currently fire - the filter is here because this loop is the one place that
+            // turns a planned dose into a row, and a demo id reaching it would mean the samples had
+            // leaked into the user's own table. See DemoModeContent.DEMO_ID_BASE.
+            if (DemoModeContent.isDemoId(p.medicationId)) continue
             if (existing.containsKey(p.scheduleId)) continue
             toInsert += DoseLog(
                 medicationId = p.medicationId,
@@ -448,7 +469,7 @@ class DoseRepository @Inject constructor(
                 resultingQuantity = dose.takenQuantity,
                 resultingStatus = DoseStatus.DUE,
                 timestamp = now,
-                note = "推迟 ${clamped} 分钟，改为 ${DateTimeUtils.formatDateTime(until).takeLast(5)}",
+                note = "稍后提醒 ${clamped} 分钟，改为 ${DateTimeUtils.formatDateTime(until).takeLast(5)}",
             )
         )
         doseLogDao.getById(doseId)?.let { armDoseReminder(it, until) }
@@ -560,7 +581,11 @@ class DoseRepository @Inject constructor(
     suspend fun sweepMissed(epochDay: Long = DateTimeUtils.todayEpochDay()): List<DoseLog> {
         val prefs = settingsRepository.current()
         val missed = doseLogDao.getRawForDay(epochDay).filter { dose ->
-            DayPlanner.shouldEscalateToMissed(dose, prefs.missedGraceMinutes)
+            // Demo rows are never written (see [materializeDay]), but this sweep works forwards from
+            // whatever is in the table, so the demo ids are excluded a second time here rather than
+            // trusted to have stayed out: escalating a sample to 未服药 would feed it into statistics.
+            !DemoModeContent.isDemoId(dose.medicationId) &&
+                DayPlanner.shouldEscalateToMissed(dose, prefs.missedGraceMinutes)
         }
         for (dose in missed) {
             doseLogDao.deriveMissed(dose.id)
@@ -585,6 +610,14 @@ class DoseRepository @Inject constructor(
      * Unlike the same-day sweep this *does* claim `missedNotified`, because a dose from a previous
      * day must never produce a notification - the user would be told about a miss they can no longer
      * act on.
+     *
+     * ## Demo ids
+     *
+     * There is nothing to filter out here, and that is worth stating rather than leaving implicit:
+     * this is a single `UPDATE ... WHERE` inside the DAO, so the only reason a demo dose is out of
+     * scope is that no demo dose was ever inserted - guaranteed by the filters in [materializeDay]
+     * and [sweepMissed]. Filtering at the DAO would mean a SQL predicate for a state that cannot
+     * exist; the two guards above are where the invariant is actually maintained.
      */
     suspend fun repairHistory(todayEpochDay: Long = DateTimeUtils.todayEpochDay()): Int =
         doseLogDao.sweepMissedBefore(todayEpochDay)
@@ -801,6 +834,48 @@ class DoseRepository @Inject constructor(
         }
         notifyWidgetRefresh()
     }
+
+    /**
+     * The 演示模式 prescription, shaped for [DayPlanner].
+     *
+     * The slots are built here rather than carried by [DemoModeContent] because the demo set is
+     * deliberately not a set of Room rows: a [Schedule] needs an id, and it has to be one that cannot
+     * collide with a real slot's. Real ids are auto-incrementing positives, so the samples' slots live
+     * in their own negative space (see [demoScheduleId]).
+     *
+     * `startEpochDay = 0` with a daily rule means the sample day exists on *any* day the user pages to -
+     * including days before demo mode was switched on, which is what makes "上一日" show the same
+     * example prescription instead of an empty page.
+     */
+    private fun demoMedicationInputs(): List<MedicationWithSchedules> {
+        val entities = DemoModeContent.asMedications()
+        return DemoModeContent.medications.mapIndexed { index, demo ->
+            val medication = entities[index]
+            MedicationWithSchedules(
+                medication = medication,
+                schedules = demo.timesOfDay.mapIndexed { slotIndex, minuteOfDay ->
+                    Schedule(
+                        id = demoScheduleId(medication.id, slotIndex),
+                        medicationId = medication.id,
+                        minuteOfDay = minuteOfDay,
+                        repeatRule = RepeatingRule(),
+                        startEpochDay = 0L,
+                        endEpochDay = null,
+                        reminderEnabled = true,
+                    )
+                },
+            )
+        }
+    }
+
+    /**
+     * A demo slot's id: negative, unique, and derived from its medication so the pair is readable.
+     *
+     * `id * 100 - slot` stays far below every demo medication id, and the assumption it encodes - a
+     * sample medication has fewer than a hundred daily times - holds by construction, since the sample
+     * list is a compile-time constant with at most three.
+     */
+    private fun demoScheduleId(medicationId: Long, slotIndex: Int): Long = medicationId * 100L - slotIndex
 
     private fun DoseLog.toPlannedDose() = PlannedDose(
         medicationId = medicationId,

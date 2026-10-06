@@ -158,7 +158,10 @@ fun MediTrackRoot(
         )
 
         availableUpdate?.let { info ->
-            UpdateDialog(info = info, onDismiss = { updateViewModel.dismiss(info) })
+            // The dialog owns the whole download/verify/install flow now, so it is handed the ViewModel
+            // rather than a dismiss callback: the flow outlives a single recomposition and has to show
+            // progress, a choice of download host, and failures - none of which fit in a callback.
+            UpdateDialog(info = info, viewModel = updateViewModel)
         }
 
         // The first-run agreement gate. Rendered *outside* the NavHost on purpose: it is not a

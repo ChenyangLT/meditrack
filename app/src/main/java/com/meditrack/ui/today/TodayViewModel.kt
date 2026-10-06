@@ -9,6 +9,7 @@ import com.meditrack.data.repository.DayState
 import com.meditrack.data.repository.DoseActionResult
 import com.meditrack.data.repository.DoseRepository
 import com.meditrack.data.repository.MedicationRepository
+import com.meditrack.domain.demo.DemoModeContent
 import com.meditrack.domain.plan.DoseView
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -273,6 +274,22 @@ class TodayViewModel @Inject constructor(
         _messages.value = null
     }
 
+    /**
+     * Ends 演示模式 from the today screen's banner.
+     *
+     * The banner's button and the settings switch write the same preference, and that is the point:
+     * the user who notices the samples on this screen must not have to remember where they were turned
+     * on. Nothing is torn down afterwards - demo doses were never persisted and never armed, so ending
+     * the mode is exactly one write, and the today list loses the sample rows because
+     * [DoseRepository.observeDay] stops appending them.
+     */
+    fun exitDemoMode() {
+        viewModelScope.launch {
+            settingsRepository.setDemoMode(false)
+            _messages.value = TodayMessage.Toast("已退出演示模式")
+        }
+    }
+
     fun refresh() {
         viewModelScope.launch {
             val day = visibleDay.value
@@ -287,8 +304,20 @@ class TodayViewModel @Inject constructor(
      * A dose that is still only "planned" (the app was opened before the scheduler materialised the
      * day) has no id yet, so the first tap has to create it. Re-reading by schedule and day keeps
      * this idempotent when two taps race.
+     *
+     * ## 演示模式 doses
+     *
+     * A sample dose has no row and can never get one - `materializeDay` filters the demo ids out - so
+     * without this branch the "+", 已服, 跳过 and 稍后提醒 controls on a sample card would silently do
+     * nothing, which reads as a broken screen rather than as an intentional limit. The toast says why.
+     * Recognising the dose by its *id* rather than by a flag threaded through the UI is what makes it
+     * impossible to miss a call site: every action already funnels through here.
      */
     private suspend fun ensurePersisted(dose: DoseView): Long? {
+        if (DemoModeContent.isDemoId(dose.medicationId)) {
+            _messages.value = TodayMessage.Toast("演示模式下不能记录示例药品")
+            return null
+        }
         if (dose.isPersisted) return dose.doseId
         doseRepository.materializeDay(dose.epochDay)
         return doseRepository.getDayRows(dose.epochDay)

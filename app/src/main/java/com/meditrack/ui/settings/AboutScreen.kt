@@ -111,7 +111,7 @@ fun AboutScreen(onBack: () -> Unit) {
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        text = "提醒功能依赖系统的闹钟与通知服务。在省电模式、系统后台限制、强制停止应用、或权限被收回等极端情况下，提醒可能延迟或失效。请不要把本应用作为唯一的用药保障手段。",
+                        text = "提醒功能依赖系统的闹钟与通知服务。在省电模式、系统后台限制、强制停止应用或权限被收回等极端情况下，提醒可能延迟或失效。请不要把本应用作为唯一的用药保障手段。",
                         style = MaterialTheme.typography.bodyMedium,
                     )
                 }
@@ -121,7 +121,7 @@ fun AboutScreen(onBack: () -> Unit) {
                 AboutCard(icon = Icons.Filled.Lock, title = "数据与隐私") {
                     BulletLine("所有药品与服药记录都保存在这台手机本地，没有账号、没有云同步。")
                     BulletLine(
-                        "全应用只有一处联网：向 GitHub 查一次最新版本号（可在设置里关闭）。" +
+                        "全应用只有一处联网：向 GitHub 查一次最新版本号（可在设置中关闭）。" +
                             "这个请求不带任何个人信息，也不会上传任何数据。",
                     )
                     BulletLine("导出备份时会写入应用私有目录，只有你自己通过分享功能才能送出。")
@@ -133,8 +133,8 @@ fun AboutScreen(onBack: () -> Unit) {
                 AboutCard(icon = Icons.Filled.MedicalServices, title = "功能范围") {
                     BulletLine("自定义药品、剂型、规格、每次剂量与多个服药时间。")
                     BulletLine("支持每天、隔天、每周指定、每 N 天、吃 X 天停 Y 天等重复规则。")
-                    BulletLine("用加号 / 减号记录实际服药数量，自动判断已服、部分服用与未服药。")
-                    BulletLine("桌面小组件按 即将服用（黄色）→ 未服药（红色）→ 已服用（绿色）排序。")
+                    BulletLine("用加号 / 减号记录实际服药数量，自动判断已服用、部分服用与未服药。")
+                    BulletLine("桌面小组件按 待服用（黄色）→ 未服药（红色）→ 已服用（绿色）排序。")
                     BulletLine("历史日历与依从率统计，可导出 CSV 交给医生参考。")
                 }
             }

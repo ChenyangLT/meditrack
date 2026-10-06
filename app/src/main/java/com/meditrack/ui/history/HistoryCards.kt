@@ -193,10 +193,10 @@ private fun CalendarLegend() {
         horizontalArrangement = Arrangement.spacedBy(14.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        LegendItem("已服", doseColors.taken)
-        LegendItem("部分", doseColors.partial)
+        LegendItem("已服用", doseColors.taken)
+        LegendItem("部分服用", doseColors.partial)
         LegendItem("未服药", doseColors.missed)
-        LegendItem("跳过", doseColors.skipped)
+        LegendItem("已跳过", doseColors.skipped)
         LegendItem("无计划", MaterialTheme.colorScheme.outlineVariant)
     }
 }
@@ -312,13 +312,13 @@ fun StatisticsCard(state: HistoryUiState, viewModel: HistoryViewModel) {
                 Spacer(modifier = Modifier.height(12.dp))
 
                 StatRow("总计划次数", stats.totalDoses.toString() + " 次")
-                StatRow("已服次数", stats.takenDoses.toString() + " 次", MaterialTheme.doseColors.taken)
+                StatRow("已服用次数", stats.takenDoses.toString() + " 次", MaterialTheme.doseColors.taken)
                 if (stats.partialDoses > 0) {
-                    StatRow("部分服用", stats.partialDoses.toString() + " 次", MaterialTheme.doseColors.partial)
+                    StatRow("部分服用次数", stats.partialDoses.toString() + " 次", MaterialTheme.doseColors.partial)
                 }
                 StatRow("未服药次数", stats.missedDoses.toString() + " 次", MaterialTheme.doseColors.missed)
                 if (stats.skippedDoses > 0) {
-                    StatRow("跳过次数", stats.skippedDoses.toString() + " 次", MaterialTheme.doseColors.skipped)
+                    StatRow("已跳过次数", stats.skippedDoses.toString() + " 次", MaterialTheme.doseColors.skipped)
                 }
                 StatRow("累计数量", stats.takenLabel)
             }

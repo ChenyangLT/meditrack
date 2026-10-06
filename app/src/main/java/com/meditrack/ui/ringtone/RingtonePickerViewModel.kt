@@ -403,7 +403,7 @@ class RingtonePickerViewModel @Inject constructor(
 
     private companion object {
         const val CLIP_SUFFIX = ".m4a"
-        const val DEFAULT_CLIP_NAME = "我的铃声"
+        const val DEFAULT_CLIP_NAME = "自定义铃声"
 
         /**
          * Ceiling on an import.

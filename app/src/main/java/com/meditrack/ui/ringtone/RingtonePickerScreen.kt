@@ -156,7 +156,16 @@ fun RingtonePickerScreen(
 
     // Safe to re-run: loadFor only reads, and the ViewModel holds the result, so a recomposition or a
     // rotation cannot make the notice flip back to the global sound.
-    LaunchedEffect(medicationId) { viewModel.loadFor(medicationId) }
+    //
+    // [RingtonePickerViewModel.refresh] is re-run for the same reason the effect runs again at all: this
+    // screen is left and re-entered when the user goes 裁剪一个片段 and comes back, and the ViewModel
+    // outlives both visits. Without the re-read, the list would still be the snapshot from before the clip
+    // existed - so a clip that was just created and made the reminder sound would be listed as
+    // 「还没有自定义铃声」, which reads as "the save did nothing".
+    LaunchedEffect(medicationId) {
+        viewModel.loadFor(medicationId)
+        viewModel.refresh()
+    }
 
     // Leaving the screen must silence the audition: a ringtone preview that keeps playing after the
     // user has navigated away is indistinguishable from the reminder itself going off.
@@ -279,7 +288,7 @@ fun RingtonePickerScreen(
             }
 
             item {
-                PickerCard(title = "我的铃声") {
+                PickerCard(title = "自定义铃声") {
                     if (clips.isEmpty()) {
                         Text(
                             text = "还没有自定义铃声。用下面的「选择本地音频」或「裁剪一个片段」添加一个。",
@@ -344,7 +353,7 @@ fun RingtonePickerScreen(
                     Spacer(modifier = Modifier.height(6.dp))
                     Text(
                         text = "「选择本地音频」直接整段使用；「裁剪一个片段」会打开波形图，" +
-                            "让你只截取其中一段。",
+                            "让你只保留其中一段。",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -419,7 +428,7 @@ fun RingtonePickerScreen(
                 PickerCard(title = "为什么要复制一份") {
                     Text(
                         text = "选中的铃声会被复制到应用自己的目录里。这样即使你以后删掉原来的歌曲、" +
-                            "换了音乐应用，或者手机重启，提醒到点仍然会响。",
+                            "换了音乐应用，或者手机重启，提醒仍然会准时响。",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -429,7 +438,7 @@ fun RingtonePickerScreen(
     }
 }
 
-/** One clip of 「我的铃声」: the sound, where it came from, and everything that can be done to it. */
+/** One clip of 「自定义铃声」: the sound, where it came from, and everything that can be done to it. */
 @Composable
 private fun ClipRow(
     clip: RingClip,

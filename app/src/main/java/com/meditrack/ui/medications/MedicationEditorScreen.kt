@@ -443,7 +443,7 @@ private fun DoseCard(
         }
         Spacer(modifier = Modifier.height(4.dp))
         Text(
-            text = "单次上限填 0 表示不限制；超过时会先弹窗确认「多服」。",
+            text = "填 0 表示不限制；超过时会先请你确认是否多服。",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -495,7 +495,7 @@ private fun ScheduleCard(
     ) {
         if (form.slots.isEmpty()) {
             Text(
-                text = "请至少添加一个服药时间，到点才会提醒。",
+                text = "请至少添加一个服药时间，否则不会提醒。",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.error,
             )
@@ -804,8 +804,8 @@ private fun ReviewCard(
         modifier = Modifier.testTag(com.meditrack.ui.MediTrackTestTags.REVIEW_SECTION),
     ) {
         Text(
-            text = "这个药吃多久要去复查，应用没法自己判断——只有开药的医生知道。" +
-                "你可以把医生说的话写下来，也可以先搜一下。",
+            text = "这个药吃多久要去复查，应用没法自己判断，只有开药的医生知道。" +
+                "你可以把医生嘱托写下来，也可以先搜一下。",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -903,14 +903,14 @@ private fun ReviewCard(
             value = form.reviewNote,
             onValueChange = onNote,
             modifier = Modifier.fillMaxWidth(),
-            label = { Text("医生怎么说（复查备注）") },
+            label = { Text("医生嘱托（复查备注）") },
             placeholder = { Text("例如：3 个月后复查肝功能") },
             minLines = 3,
             shape = RoundedCornerShape(14.dp),
         )
         Spacer(modifier = Modifier.height(4.dp))
         Text(
-            text = "这段话会原样显示在红色的复查通知和锁屏上，所以请写得简短、准确，" +
+            text = "这段话会原样显示在红色的复查通知和锁屏上。请写得简短、准确，" +
                 "例如复查项目和大概时间。",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -927,9 +927,9 @@ private fun ReviewCard(
         )
         Text(
             text = when (form.reviewCountMode) {
-                ReviewCountMode.DOSES -> "只统计真正记录为「已服」的次数；跳过和漏服不算。"
+                ReviewCountMode.DOSES -> "只统计记录为「已服用」的次数；已跳过和未服药不算。"
                 ReviewCountMode.DAYS -> "从开始计数那天算起，按自然日计算，第一天算第 1 天。"
-                ReviewCountMode.QUANTITY -> "把每次服用的量累加起来，按${quantityUnit}计算。"
+                ReviewCountMode.QUANTITY -> "把每次服用的量累加起来，按 ${quantityUnit} 计算。"
             },
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -1079,8 +1079,8 @@ private fun ReviewCard(
         Spacer(modifier = Modifier.height(6.dp))
         SwitchRow(
             title = "开启复查提醒",
-            subtitle = "到时间会发一条醒目的通知。数到的当天会自动关闭，" +
-                "点「开始新一轮」后会重新打开。",
+            subtitle = "到时间会发一条醒目的通知。数到的当天自动关闭，" +
+                "点「开始新一轮」后重新打开。",
             checked = form.reviewReminderEnabled,
             onCheckedChange = onReminderEnabled,
         )
@@ -1197,7 +1197,7 @@ private fun AdvancedCard(
         }
         Spacer(modifier = Modifier.height(4.dp))
         Text(
-            text = "库存填 0 表示不追踪；吃药后会自动扣减，低于提醒值时提示补货。",
+            text = "库存填 0 表示不追踪；服用后会自动扣减，低于提醒值时提示补货。",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )

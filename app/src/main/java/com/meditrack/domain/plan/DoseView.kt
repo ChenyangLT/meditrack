@@ -169,7 +169,7 @@ data class DoseView(
         ): String = when {
             status == DoseStatus.SKIPPED -> "已跳过"
             snoozedUntilMillis != null && nowMillis < snoozedUntilMillis ->
-                "已推迟到 " + DateTimeUtils.formatDateTime(snoozedUntilMillis).takeLast(5)
+                "稍后提醒至 " + DateTimeUtils.formatDateTime(snoozedUntilMillis).takeLast(5)
             status == DoseStatus.PARTIAL -> {
                 val remaining = (plannedQuantity - takenQuantity).coerceAtLeast(0.0)
                 // Non-breaking again: "还差 1 片" must not become "还差 1" / "片".

@@ -18,7 +18,22 @@ data class UpdateInfo(
     val releaseUrl: String,
     /** Direct download of the APK asset, when the release carries one. */
     val apkUrl: String?,
+    /**
+     * The release body as published on GitHub.
+     *
+     * Shown verbatim in the update dialog, because "what changed" is the question a user actually has
+     * before spending time and data on an update. Not parsed or trimmed: it is Markdown, and the dialog
+     * renders it as plain text with the markup left in, which is honest and costs no parser.
+     */
     val body: String,
+    /**
+     * Download sources advertised by the manifest, when it carried any.
+     *
+     * Empty means "derive them from [apkUrl]" - see [DownloadMirrors.forRelease]. Kept as the raw
+     * manifest entries rather than resolved here so that a release fetched from the GitHub API (which
+     * cannot carry mirrors) and one fetched from the project manifest take the same path afterwards.
+     */
+    val advertisedMirrors: List<DownloadMirror> = emptyList(),
 )
 
 /**
@@ -75,6 +90,11 @@ internal data class GitHubAsset(
  * It exists because `api.github.com` is an unreliable destination on some networks: the host is
  * commonly throttled or reset while the Pages CDN answers. Both carry the same information, so the
  * app tries the cheap, dependable one first.
+ *
+ * `mirrors` is optional and additive: a manifest without it still parses and the download mirrors are
+ * derived from `apkUrl` instead (see [DownloadMirrors]). It exists as a manifest field so that a mirror
+ * can be added or retired *without shipping a new version of the app* - which matters, because the whole
+ * reason a mirror is needed is that the previous set stopped working.
  */
 internal data class VersionManifest(
     @SerializedName("version") val version: String? = null,
@@ -82,6 +102,14 @@ internal data class VersionManifest(
     @SerializedName("releaseUrl") val releaseUrl: String? = null,
     @SerializedName("apkUrl") val apkUrl: String? = null,
     @SerializedName("body") val body: String? = null,
+    @SerializedName("mirrors") val mirrors: List<ManifestMirror>? = null,
+)
+
+/** One advertised download source. */
+internal data class ManifestMirror(
+    @SerializedName("id") val id: String? = null,
+    @SerializedName("label") val label: String? = null,
+    @SerializedName("url") val url: String? = null,
 )
 
 /**
@@ -114,12 +142,26 @@ object GitHubReleaseParser {
     fun parseManifest(json: String): UpdateInfo? = runCatching {
         val manifest = gson.fromJson(json, VersionManifest::class.java) ?: return null
         val version = manifest.version?.takeIf { it.isNotBlank() } ?: return null
+        val advertised = manifest.mirrors.orEmpty()
         UpdateInfo(
             version = UpdateVersion.display(version),
             tagName = manifest.tagName?.takeIf { it.isNotBlank() } ?: "v" + UpdateVersion.display(version),
             releaseUrl = manifest.releaseUrl?.takeIf { it.isNotBlank() } ?: FALLBACK_URL,
             apkUrl = manifest.apkUrl?.takeIf { it.isNotBlank() },
             body = manifest.body.orEmpty(),
+            // `mapIndexed` with an explicit list rather than `indexOf` inside the lambda: `indexOf` finds
+            // the *first* structurally equal entry, so two mirrors with the same id and url would both be
+            // flagged as the default.
+            advertisedMirrors = advertised.mapIndexedNotNull { index, mirror ->
+                val url = mirror.url?.takeIf { it.isNotBlank() } ?: return@mapIndexedNotNull null
+                DownloadMirror(
+                    id = mirror.id?.takeIf { it.isNotBlank() } ?: url,
+                    label = mirror.label?.takeIf { it.isNotBlank() } ?: url,
+                    url = url,
+                    // The manifest lists them best-first, so the first one is the default.
+                    isDefaultMirror = index == 0,
+                )
+            },
         )
     }.getOrNull()
 }

@@ -95,6 +95,9 @@ class TrimViewModel @Inject constructor(
     fun load(uri: Uri, label: String) {
         _isLoading.value = true
         _waveform.value = null
+        // Loading a source starts a new visit to the trimmer: the previous visit's "saved" event belongs
+        // to the previous visit and must not fire into this one.
+        _savedClipId.value = null
         viewModelScope.launch {
             val decoded = WaveformDecoder.decode(context, uri, label)
             if (decoded == null || decoded.durationMillis <= 0L) {
@@ -314,7 +317,7 @@ class TrimViewModel @Inject constructor(
         const val DEFAULT_WINDOW_MILLIS = 30_000L
 
         const val CLIP_SUFFIX = ".m4a"
-        const val DEFAULT_CLIP_NAME = "我的铃声"
+        const val DEFAULT_CLIP_NAME = "自定义铃声"
 
         private const val PLAYHEAD_POLL_MILLIS = 50L
 

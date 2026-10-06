@@ -77,6 +77,12 @@ class SettingsRepository @Inject constructor(
         // ---- first-run agreement ----
         val AGREEMENT_VERSION = intPreferencesKey("agreement_accepted_version")
 
+        // ---- developer options ----
+        val DEVELOPER_DEBUG = booleanPreferencesKey("developer_debug_mode")
+        val DEMO_MODE_ENABLED = booleanPreferencesKey("demo_mode_enabled")
+        val DEMO_MODE_UNTIL = longPreferencesKey("demo_mode_until")
+        val DEMO_MODE_STARTED = longPreferencesKey("demo_mode_started_at")
+
         // The one feature that touches the network. See UpdateChecker for exactly what it sends.
         val AUTO_UPDATE_CHECK = booleanPreferencesKey("auto_update_check")
         val LAST_UPDATE_CHECK = longPreferencesKey("last_update_check")
@@ -212,6 +218,46 @@ class SettingsRepository @Inject constructor(
      */
     suspend fun setAgreementAcceptedVersion(version: Int) =
         edit { it[Keys.AGREEMENT_VERSION] = version }
+
+    // ------------------------------------------------------ developer options
+
+    /** Verbose diagnostics on a release build, so a user can be asked to switch it on and send a log. */
+    suspend fun setDeveloperDebugMode(enabled: Boolean) =
+        edit { it[Keys.DEVELOPER_DEBUG] = enabled }
+
+    /**
+     * Starts demo mode for its fixed window, or ends it when [enabled] is false.
+     *
+     * The deadline is computed here rather than by the caller so the bound is one constant in one place; a
+     * caller supplying its own duration is how a "temporary" mode becomes permanent through a typo.
+     */
+    suspend fun setDemoMode(enabled: Boolean, nowMillis: Long = System.currentTimeMillis()) = edit { p ->
+        if (enabled) {
+            p[Keys.DEMO_MODE_ENABLED] = true
+            p[Keys.DEMO_MODE_STARTED] = nowMillis
+            p[Keys.DEMO_MODE_UNTIL] = nowMillis + DEMO_MODE_DURATION_MILLIS
+        } else {
+            p[Keys.DEMO_MODE_ENABLED] = false
+            p[Keys.DEMO_MODE_UNTIL] = 0L
+            p[Keys.DEMO_MODE_STARTED] = 0L
+        }
+    }
+
+    /**
+     * Clears the stored demo flag once its deadline has passed.
+     *
+     * Called on app start so the preference does not read "on" forever after the window closes. The
+     * deadline comparison in [UserPreferences.isDemoModeActive] is what actually hides the demo data, which
+     * is why this is safe to treat as best-effort tidying.
+     */
+    suspend fun expireDemoModeIfDue(nowMillis: Long = System.currentTimeMillis()) = edit { p ->
+        val until = p[Keys.DEMO_MODE_UNTIL] ?: 0L
+        if (p[Keys.DEMO_MODE_ENABLED] == true && until > 0L && nowMillis >= until) {
+            p[Keys.DEMO_MODE_ENABLED] = false
+            p[Keys.DEMO_MODE_UNTIL] = 0L
+            p[Keys.DEMO_MODE_STARTED] = 0L
+        }
+    }
     suspend fun setVibrationEnabled(enabled: Boolean) = edit { it[Keys.VIBRATION_ENABLED] = enabled }
     suspend fun setHeadsUpEnabled(enabled: Boolean) = edit { it[Keys.HEADS_UP_ENABLED] = enabled }
     suspend fun setOverrideSilent(enabled: Boolean) = edit { it[Keys.OVERRIDE_SILENT] = enabled }
@@ -394,6 +440,10 @@ class SettingsRepository @Inject constructor(
             reviewSearchSuffix = this[Keys.REVIEW_SEARCH_SUFFIX] ?: defaults.reviewSearchSuffix,
             agreementAcceptedVersion =
                 this[Keys.AGREEMENT_VERSION] ?: defaults.agreementAcceptedVersion,
+            developerDebugMode = this[Keys.DEVELOPER_DEBUG] ?: defaults.developerDebugMode,
+            demoModeEnabled = this[Keys.DEMO_MODE_ENABLED] ?: defaults.demoModeEnabled,
+            demoModeUntilMillis = this[Keys.DEMO_MODE_UNTIL] ?: defaults.demoModeUntilMillis,
+            demoModeStartedAtMillis = this[Keys.DEMO_MODE_STARTED] ?: defaults.demoModeStartedAtMillis,
             backupFolderUri = this[Keys.BACKUP_FOLDER_URI] ?: defaults.backupFolderUri,
             autoUpdateCheck = this[Keys.AUTO_UPDATE_CHECK] ?: defaults.autoUpdateCheck,
             lastUpdateCheckAtMillis = this[Keys.LAST_UPDATE_CHECK] ?: defaults.lastUpdateCheckAtMillis,
@@ -446,5 +496,14 @@ class SettingsRepository @Inject constructor(
          * into the field cannot produce a URL no browser will accept.
          */
         const val MAX_SEARCH_SUFFIX_LENGTH = 40
+
+        /**
+         * How long demo mode lasts.
+         *
+         * 24 hours, as specified. Long enough to hand the phone to someone and let them look around for an
+         * evening, short enough that forgetting to switch it off cannot leave a user staring at example
+         * prescriptions a week later and wondering which of their own data the app lost.
+         */
+        const val DEMO_MODE_DURATION_MILLIS = 24L * 60L * 60L * 1000L
     }
 }

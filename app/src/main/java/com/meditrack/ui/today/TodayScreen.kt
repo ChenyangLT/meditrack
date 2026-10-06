@@ -36,6 +36,7 @@ import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.Undo
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenu
@@ -58,6 +59,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -76,6 +78,7 @@ import com.meditrack.core.util.MedicationVisuals
 import com.meditrack.core.util.QuantityFormatter
 import com.meditrack.data.local.entity.DoseStatus
 import com.meditrack.data.local.entity.MedicationIcon
+import com.meditrack.domain.demo.DemoModeContent
 import com.meditrack.domain.plan.DoseView
 import com.meditrack.domain.plan.TodaySummary
 import com.meditrack.ui.components.AdaptiveButtonRow
@@ -120,6 +123,10 @@ fun TodayScreen(
     val focusDoseId by viewModel.focusDoseId.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
     val listState = rememberLazyListState()
+    // Folded away for this visit only. `rememberSaveable`, so rotating the phone does not bring back a
+    // card the user just dismissed - but leaving and returning to 今日 does, because the mode is still
+    // on and the next visit is a fresh reading of the same screen.
+    var demoBannerDismissed by rememberSaveable { mutableStateOf(false) }
 
     // Toast-style events.
     LaunchedEffect(message) {
@@ -181,6 +188,17 @@ fun TodayScreen(
                 onToday = viewModel::showToday,
             )
 
+            // Above the progress header rather than inside the list: the header is a claim about the
+            // user's own day ("已完成 3/5"), and with sample doses mixed into it that claim needs its
+            // disclaimer *before* it is read, not after scrolling. The card stays until demo mode ends
+            // (or the user folds it away for this visit), so it can never be scrolled out of mind.
+            if (state.preferences.isDemoModeActive() && !demoBannerDismissed) {
+                DemoModeBanner(
+                    onExit = viewModel::exitDemoMode,
+                    onDismiss = { demoBannerDismissed = true },
+                )
+            }
+
             state.summary?.let { summary ->
                 if (!summary.isEmpty) {
                     TodayProgressHeader(summary = summary, doses = state.doses)
@@ -220,6 +238,68 @@ fun TodayScreen(
                         )
                     }
                 }
+            }
+        }
+    }
+}
+
+/**
+ * The 演示模式 announcement, shown above the day's doses while the mode is on.
+ *
+ * ## Why it is not a dialog
+ *
+ * A dialog would be the obvious way to say "these are not your medications", and it would be the wrong
+ * one: it interrupts the one thing the user came to do, and it can be dismissed without being read.
+ * A card pinned above the list is read *before* the doses it qualifies, on every single visit, and
+ * still gets out of the way in one tap.
+ *
+ * ## Why the exit action is here and not only in 设置
+ *
+ * The user who notices the samples is looking at this screen; sending them into 设置 → 开发者选项 →
+ * 演示模式 to undo something they did not intend is how a demo mode ends up staying on for a week.
+ *
+ * The colours are the tertiary container rather than an error tone: nothing is wrong, the screen is
+ * simply showing something other than the user's own data.
+ */
+@Composable
+private fun DemoModeBanner(
+    onExit: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        shape = RoundedCornerShape(MaterialTheme.prefs.cardCornerDp.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.tertiaryContainer,
+        ),
+    ) {
+        Row(
+            modifier = Modifier.padding(start = 14.dp, top = 10.dp, end = 6.dp, bottom = 10.dp),
+            verticalAlignment = Alignment.Top,
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "演示模式",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onTertiaryContainer,
+                )
+                Text(
+                    text = "当前显示的是示例药品，不是你的用药记录。",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onTertiaryContainer,
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+                Button(onClick = onExit) { Text("退出演示模式") }
+            }
+            IconButton(onClick = onDismiss) {
+                Icon(
+                    imageVector = Icons.Filled.Close,
+                    contentDescription = "收起演示模式提示",
+                    tint = MaterialTheme.colorScheme.onTertiaryContainer,
+                )
             }
         }
     }
@@ -499,14 +579,21 @@ private fun DoseCard(
                             Icon(Icons.Filled.MoreVert, contentDescription = "更多操作")
                         }
                         DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                            DropdownMenuItem(
-                                text = { Text("编辑药品") },
-                                leadingIcon = { Icon(Icons.Filled.Edit, contentDescription = null) },
-                                onClick = {
-                                    menuOpen = false
-                                    onOpenMedication()
-                                },
-                            )
+                            // 演示模式 has no medication to edit: the sample rows exist only in this
+                            // list, so the editor would open on an id that is not in the database and
+                            // saving it would insert a *real* medication made of sample data. The entry
+                            // is therefore absent rather than broken, and the card's other actions say
+                            // why they do nothing (see TodayViewModel.ensurePersisted).
+                            if (!DemoModeContent.isDemoId(dose.medicationId)) {
+                                DropdownMenuItem(
+                                    text = { Text("编辑药品") },
+                                    leadingIcon = { Icon(Icons.Filled.Edit, contentDescription = null) },
+                                    onClick = {
+                                        menuOpen = false
+                                        onOpenMedication()
+                                    },
+                                )
+                            }
                             if (dose.status == DoseStatus.SKIPPED) {
                                 DropdownMenuItem(
                                     text = { Text("取消跳过") },
@@ -601,7 +688,7 @@ private fun DoseCard(
                         DoseStatusChip(status = dose.status, isOverdue = dose.isOverdue)
                         AnimatedVisibility(visible = dose.status != DoseStatus.TAKEN) {
                             TextButton(onClick = onMarkTaken) {
-                                Text("标记已服", style = MaterialTheme.typography.labelMedium)
+                                Text("标记已服用", style = MaterialTheme.typography.labelMedium)
                             }
                         }
                     }
@@ -643,7 +730,7 @@ private fun EmptyTodayState(onAddMedication: () -> Unit) {
         )
         Spacer(modifier = Modifier.height(8.dp))
         Text(
-            text = "添加一个药品并设置服药时间，到点就会提醒你。",
+            text = "添加一个药品并设置服药时间，到时间会提醒你。",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = androidx.compose.ui.text.style.TextAlign.Center,
@@ -690,7 +777,7 @@ private fun OverDoseDialog(
             Text(
                 "本次记录将达到 " +
                     QuantityFormatter.format(attempted, dose.unitLabel) +
-                    "，超过你设置的每次最大剂量 " +
+                    "，超过你设置的单次上限 " +
                     QuantityFormatter.format(max, dose.unitLabel) +
                     "。\n\n确认后会如实记录，如需帮助请咨询医生或药师。"
             )

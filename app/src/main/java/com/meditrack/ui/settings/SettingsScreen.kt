@@ -14,6 +14,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.FlowRow
@@ -33,11 +34,14 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Accessibility
 import androidx.compose.material.icons.filled.Alarm
+import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.BatteryAlert
 import androidx.compose.material.icons.filled.Bedtime
+import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.CleaningServices
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.EventAvailable
@@ -60,12 +64,15 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
@@ -94,6 +101,8 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
@@ -150,6 +159,26 @@ private val QUIET_PRESETS = listOf(
 private const val SETTINGS_EXPAND_MILLIS = 180
 
 /**
+ * The passphrase that reveals 开发者选项.
+ *
+ * ## What this is, and what it is not
+ *
+ * It is a **speed bump, not a security boundary**. The value is printed in the project's public README,
+ * so anyone who wants it has it; what the dialog buys is that a user scrolling the settings list cannot
+ * switch demo mode on by accident, and cannot end up in a mode whose whole purpose is to look like the
+ * app while showing somebody else's prescription. Nothing behind the gate is secret: the two switches
+ * inside it only choose how much the app logs and whether a fixed set of examples is displayed.
+ *
+ * ## Why it is a plain constant rather than `BuildConfig`
+ *
+ * A `BuildConfig` field would make the release build the only one with a *different* password, which is
+ * precisely backwards for a gate whose failure mode is invisible: the code path that a curious user, a
+ * reviewer or a screenshot run exercises would be the debug-only one, and a break in the release-only
+ * path would be found by nobody. One constant means one path, tested by every build.
+ */
+private const val DEVELOPER_OPTIONS_PASSWORD = "meditrack123"
+
+/**
  * 设置.
  *
  * The screen is ordered by "how likely is this to break my reminders?", not alphabetically:
@@ -166,6 +195,10 @@ fun SettingsScreen(
     onOpenAbout: () -> Unit,
     onOpenOnboarding: () -> Unit,
     viewModel: SettingsViewModel = hiltViewModel(),
+    // The update dialog moved to the shared UpdateViewModel in 2.1.0, because the flow it now drives -
+    // download, verify, install - is too long-lived to live in a per-screen callback. This screen still
+    // owns the *manual* check that surfaces it.
+    updateViewModel: com.meditrack.ui.update.UpdateViewModel = hiltViewModel(),
 ) {
     val context = LocalContext.current
     val preferences by viewModel.preferences.collectAsStateWithLifecycle()
@@ -175,6 +208,7 @@ fun SettingsScreen(
     val message by viewModel.message.collectAsStateWithLifecycle()
     val lastExport by viewModel.lastExport.collectAsStateWithLifecycle()
     val backups by viewModel.backups.collectAsStateWithLifecycle()
+    // Produced by this screen's own manual "立即检查更新"; handed to the shared update flow below.
     val updateFound by viewModel.updateFound.collectAsStateWithLifecycle()
     val backupFolder by viewModel.backupFolder.collectAsStateWithLifecycle()
     val cacheUsage by viewModel.cacheUsage.collectAsStateWithLifecycle()
@@ -203,12 +237,25 @@ fun SettingsScreen(
     var showRingtonePicker by remember { mutableStateOf(false) }
     // null = showing settings; a pair = trimming that source down into a clip.
     var trimSource by remember { mutableStateOf<Pair<android.net.Uri, String>?>(null) }
+    // 开发者选项: unlocked, and left open, for this visit to the screen only.
+    //
+    // `rememberSaveable` and not `remember`, so rotating the phone - or coming back from the system
+    // Settings page the 应用锁 row opens - does not lock the section again, which would read as the app
+    // forgetting that the password was accepted. Leaving 设置 and returning does lock it, which is the
+    // point of the gate: it keeps the two switches out of the way of ordinary use rather than guarding
+    // them against an attacker who has the phone unlocked already.
+    var developerUnlocked by rememberSaveable { mutableStateOf(false) }
+    // Separate from the unlock flag: a user who has unlocked once may still fold the section away, and
+    // it has to stay folded. Hoisted here because the section is *opened* by the dialog rather than by a
+    // tap on its header, which the section's own internal state cannot express.
+    var developerExpanded by rememberSaveable { mutableStateOf(false) }
+    var showDeveloperPassword by remember { mutableStateOf(false) }
 
     // The system back button has to close the picker before it leaves 设置, or a user three taps deep
-    // in the trimmer ends up outside the app with no idea what happened.
+    // in the trimmer ends up outside the app with no idea what happened. One level per press: the
+    // trimmer sits on top of the picker, so backing out of it returns to the ringtone list.
     BackHandler(enabled = showRingtonePicker || trimSource != null) {
-        trimSource = null
-        showRingtonePicker = false
+        if (trimSource != null) trimSource = null else showRingtonePicker = false
     }
 
     // The self-check is a snapshot of system state, so it is read when the screen appears and
@@ -263,7 +310,12 @@ fun SettingsScreen(
     // would wait for a host that is not there.
 
     updateFound?.let { info ->
-        UpdateDialog(info = info, onDismiss = { viewModel.dismissUpdate(info) })
+        // Presented through the shared flow so the download/verify/install state lives in one place; a
+        // second dialog bound to a second ViewModel is how the two would end up disagreeing about progress.
+        androidx.compose.runtime.LaunchedEffect(info.tagName) { updateViewModel.present(info) }
+        // And rendered from the same shared state, so the manual check and the start-up check produce one
+        // dialog rather than two competing ones.
+        com.meditrack.ui.update.UpdateDialog(info = info, viewModel = updateViewModel)
     }
 
     pendingImport?.let { entry ->
@@ -341,14 +393,24 @@ fun SettingsScreen(
         )
     }
 
-    if (showRingtonePicker) {
-        // The picker asks the ViewModel for the clip list and applies a selection immediately; coming
-        // back just re-reads the settings screen's own state, which already observed the change.
-        RingtonePickerScreen(
-            onBack = { showRingtonePicker = false },
-            onOpenTrimmer = { uri, label -> trimSource = uri to label },
+    if (showDeveloperPassword) {
+        DeveloperPasswordDialog(
+            onDismiss = { showDeveloperPassword = false },
+            onUnlocked = {
+                developerUnlocked = true
+                // Opened on the way through: the user asked for these controls a moment ago, so making
+                // them tap the header again would be asking them to repeat themselves.
+                developerExpanded = true
+                showDeveloperPassword = false
+            },
         )
-    } else if (trimSource != null) {
+    }
+
+    // The trimmer is tested *first*, and that order is the whole fix for v2.0.0's "裁剪片段 does
+    // nothing": the trimmer is opened from *inside* the picker, so `showRingtonePicker` is still true
+    // when `onOpenTrimmer` stores the source. Testing the picker first therefore rendered the picker
+    // again - the file was picked, `trimSource` was set, and 裁剪铃声 never appeared.
+    if (trimSource != null) {
         val (uri, label) = trimSource!!
         TrimScreen(
             sourceUri = uri,
@@ -361,6 +423,13 @@ fun SettingsScreen(
                 trimSource = null
                 viewModel.refreshCacheUsage()
             },
+        )
+    } else if (showRingtonePicker) {
+        // The picker asks the ViewModel for the clip list and applies a selection immediately; coming
+        // back just re-reads the settings screen's own state, which already observed the change.
+        RingtonePickerScreen(
+            onBack = { showRingtonePicker = false },
+            onOpenTrimmer = { uri, label -> trimSource = uri to label },
         )
     } else {
     Scaffold(
@@ -466,13 +535,13 @@ fun SettingsScreen(
                     )
                     SwitchRow(
                         title = "精确闹钟",
-                        subtitle = "使用系统精确闹钟，到点立即提醒",
+                        subtitle = "使用系统精确闹钟，准时提醒",
                         checked = preferences.exactAlarms,
                         onCheckedChange = viewModel::setExactAlarms,
                     )
                     SwitchRow(
                         title = "顶栏横幅弹出",
-                        subtitle = "到点时在屏幕顶部弹出横幅，并在锁屏上显示（推荐保持开启）",
+                        subtitle = "到达时间时在屏幕顶部弹出横幅，并在锁屏上显示（推荐保持开启）",
                         checked = preferences.headsUpEnabled,
                         onCheckedChange = viewModel::setHeadsUpEnabled,
                     )
@@ -558,12 +627,11 @@ fun SettingsScreen(
                         labelOf = { if (it == 0) "不重复" else "$it 分钟" },
                         onSelect = viewModel::setRepeatMinutes,
                     )
-                    NumberOptionRow(
-                        title = "「稍后提醒」时长",
-                        options = listOf(5, 10, 15, 30),
-                        selected = preferences.snoozeMinutes,
-                        labelOf = { "$it 分钟" },
-                        onSelect = viewModel::setSnoozeMinutes,
+                    DropdownSettingRow(
+                        title = "稍后提醒间隔",
+                        options = listOf(5, 10, 15, 30).map { it.toString() to "$it 分钟" },
+                        selectedId = preferences.snoozeMinutes.toString(),
+                        onSelect = { viewModel.setSnoozeMinutes(it.toInt()) },
                     )
                     NumberOptionRow(
                         title = "未服药判定时间",
@@ -589,7 +657,7 @@ fun SettingsScreen(
                     summary = "${ringMode.label} · $soundLabel",
                 ) {
                     Text(
-                        text = "提醒不追求精确到秒，而是尽量在你方便的时候、用你容易接受的方式告诉你。",
+                        text = "提醒会在设定时间准时发出，下面这些设置决定它以什么方式出现。",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -626,23 +694,24 @@ fun SettingsScreen(
                     }
                     SwitchRow(
                         title = "「稍后提醒」后保留状态",
-                        subtitle = "推迟后在通知栏留下「已推迟到几点」和「现在服用」按钮，不会直接消失",
+                        subtitle = "稍后提醒后在通知栏保留一条状态和「现在服用」按钮，不会直接消失",
                         checked = preferences.snoozeStateNotificationEnabled,
                         onCheckedChange = viewModel::setSnoozeStateNotificationEnabled,
                     )
                     SwitchRow(
                         title = "错过时间后提示补记",
-                        subtitle = "迟到太久时不再响铃，改为安静地提示「如果已经吃过，点一下补记」",
+                        subtitle = "迟到太久时不再响铃，改为安静地提示「如果已经服用，点一下补记」",
                         checked = preferences.catchUpReminderEnabled,
                         onCheckedChange = viewModel::setCatchUpReminderEnabled,
                     )
                     if (preferences.catchUpReminderEnabled) {
-                        NumberOptionRow(
+                        DropdownSettingRow(
                             title = "多久之后算「太晚了」",
-                            options = listOf(60, 120, 180, 360),
-                            selected = preferences.staleReminderMinutes,
-                            labelOf = { if (it >= 60) "${it / 60} 小时" else "$it 分钟" },
-                            onSelect = viewModel::setStaleReminderMinutes,
+                            options = listOf(60, 120, 180, 360).map {
+                                it.toString() to if (it >= 60) "${it / 60} 小时" else "$it 分钟"
+                            },
+                            selectedId = preferences.staleReminderMinutes.toString(),
+                            onSelect = { viewModel.setStaleReminderMinutes(it.toInt()) },
                         )
                     }
 
@@ -661,7 +730,7 @@ fun SettingsScreen(
                         style = MaterialTheme.typography.bodyLarge,
                     )
                     Text(
-                        text = "只响一声很容易被错过。让提醒一直响到有人处理，是「没听见」这类漏服最直接的解法。",
+                        text = "只响一声很容易被错过。让提醒一直响到有人处理，是应对「没听见」最直接的办法。",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -692,7 +761,7 @@ fun SettingsScreen(
                             onSelect = viewModel::setRingMaxMinutes,
                         )
                         Text(
-                            text = "到点仍未处理就安静下来，通知会留在通知栏——手机放在包里时，这一条防止它响到没电。",
+                            text = "到时间仍未处理就安静下来，通知会留在通知栏——手机放在包里时，这一条防止它响到没电。",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -748,34 +817,30 @@ fun SettingsScreen(
                         Spacer(modifier = Modifier.height(4.dp))
                         Text("时段", style = MaterialTheme.typography.bodyLarge)
                         Spacer(modifier = Modifier.height(6.dp))
-                        FlowRow(
+                        Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            verticalArrangement = Arrangement.spacedBy(4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            FilterChip(
-                                selected = false,
+                            // Dropdown-shaped, but the menu behind the arrow is the existing minute
+                            // picker: a quiet-hours boundary is an exact time, not one of six presets.
+                            DropdownButton(
+                                label = "开始 " + DateTimeUtils.formatMinuteOfDay(
+                                    preferences.quietHoursStartMinute,
+                                    preferences.use24HourFormat,
+                                ),
+                                contentDescription = "选择免打扰开始时间",
                                 onClick = { quietEditing = 0 },
-                                label = {
-                                    Text(
-                                        "开始 " + DateTimeUtils.formatMinuteOfDay(
-                                            preferences.quietHoursStartMinute,
-                                            preferences.use24HourFormat,
-                                        )
-                                    )
-                                },
+                                modifier = Modifier.weight(1f),
                             )
-                            FilterChip(
-                                selected = false,
+                            DropdownButton(
+                                label = "结束 " + DateTimeUtils.formatMinuteOfDay(
+                                    preferences.quietHoursEndMinute,
+                                    preferences.use24HourFormat,
+                                ),
+                                contentDescription = "选择免打扰结束时间",
                                 onClick = { quietEditing = 1 },
-                                label = {
-                                    Text(
-                                        "结束 " + DateTimeUtils.formatMinuteOfDay(
-                                            preferences.quietHoursEndMinute,
-                                            preferences.use24HourFormat,
-                                        )
-                                    )
-                                },
+                                modifier = Modifier.weight(1f),
                             )
                         }
                         Text(
@@ -797,11 +862,11 @@ fun SettingsScreen(
                         )
                         Spacer(modifier = Modifier.height(4.dp))
                         SwitchRow(
-                            title = "时段内到点的提醒，顺延到结束后再发",
+                            title = "落在时段内的提醒，顺延到结束后再发",
                             subtitle = if (preferences.quietHoursDeferEnabled) {
                                 "开启（推荐）：时段内完全不响，等时段结束再提醒你一次，不会漏药"
                             } else {
-                                "关闭：时段内到点的提醒只在通知栏静默显示一条，不响不震"
+                                "关闭：落在时段内的提醒只在通知栏静默显示一条，不响不震"
                             },
                             checked = preferences.quietHoursDeferEnabled,
                             onCheckedChange = viewModel::setQuietHoursDeferEnabled,
@@ -943,12 +1008,11 @@ fun SettingsScreen(
                         checked = preferences.reliabilityWorkerEnabled,
                         onCheckedChange = viewModel::setReliabilityWorkerEnabled,
                     )
-                    NumberOptionRow(
+                    DropdownSettingRow(
                         title = "自检频率",
-                        options = listOf(10, 15, 30, 60),
-                        selected = preferences.heartbeatMinutes,
-                        labelOf = { "每 $it 分钟" },
-                        onSelect = viewModel::setHeartbeatMinutes,
+                        options = listOf(10, 15, 30, 60).map { it.toString() to "$it 分钟" },
+                        selectedId = preferences.heartbeatMinutes.toString(),
+                        onSelect = { viewModel.setHeartbeatMinutes(it.toInt()) },
                     )
                     Text(
                         text = "每隔这么久，应用会重新核对全部提醒并补齐丢失的闹钟。" +
@@ -999,7 +1063,7 @@ fun SettingsScreen(
                     },
                 ) {
                     Text(
-                        text = "提醒有可能正好落在手机锁屏、装在口袋里的那段时间：闹钟到点了，但没有人看见。" +
+                        text = "提醒有可能正好落在手机锁屏、装在口袋里的那段时间：闹钟到时间了，但没有人看见。" +
                             "开启后，只要你解锁手机（或重新打开药准时），应用会立刻检查所有" +
                             "「已经过了时间、还没有记录」的药，并合并成一条提醒告诉你——和系统闹钟是一个道理。",
                         style = MaterialTheme.typography.bodySmall,
@@ -1008,7 +1072,7 @@ fun SettingsScreen(
                     Spacer(modifier = Modifier.height(8.dp))
                     SwitchRow(
                         title = "解锁时补提醒没吃的药",
-                        subtitle = "默认开启。已吃掉、已跳过、点了「稍后」且还没到时间的都不会打扰",
+                        subtitle = "默认开启。已服用、已跳过、点了「稍后提醒」且还没到时间的都不会打扰",
                         checked = preferences.unlockReminderEnabled,
                         onCheckedChange = viewModel::setUnlockReminderEnabled,
                         switchModifier = Modifier.testTag(
@@ -1128,18 +1192,21 @@ fun SettingsScreen(
                         )
                         Text(
                             text = "复查要提前挂号，所以只在那一天提醒没有用。提前预告会在还差几次时就轻声说一句；" +
-                                "到点后才是那条需要点「我知道了」的红色提醒。",
+                                "到时间后才是那条需要点「我知道了」的红色提醒。",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                         Spacer(modifier = Modifier.height(6.dp))
 
-                        ChipRow(
+                        DropdownSettingRow(
                             title = "搜索用哪个引擎",
-                            options = ReviewSearchEngine.entries,
-                            selected = reviewEngine,
-                            labelOf = { it.label },
-                            onSelect = viewModel::setReviewSearchEngine,
+                            options = ReviewSearchEngine.entries.map { it.name to it.label },
+                            selectedId = reviewEngine.name,
+                            onSelect = { id ->
+                                ReviewSearchEngine.entries
+                                    .firstOrNull { it.name == id }
+                                    ?.let(viewModel::setReviewSearchEngine)
+                            },
                         )
                         // The search stays in the user's own browser: nothing about their
                         // prescriptions is sent anywhere by this app.
@@ -1606,13 +1673,26 @@ fun SettingsScreen(
                 ExpandableSettingsSection(
                     title = "其他",
                     icon = Icons.Filled.Lock,
-                    summary = if (preferences.appLockEnabled) "应用锁已开" else "应用锁已关",
+                    // No longer "应用锁已开 / 已关": the app does not own that state any more, so the
+                    // summary names what the section *contains* instead of claiming a value it cannot
+                    // read. See the 应用锁 row itself for why.
+                    summary = "应用锁、关于与免责声明",
                 ) {
-                    SwitchRow(
-                        title = "应用锁",
-                        subtitle = "打开应用时需要指纹或锁屏密码",
-                        checked = preferences.appLockEnabled,
-                        onCheckedChange = viewModel::setAppLock,
+                    // 应用锁 is the system's feature. This used to be a switch bound to
+                    // `appLockEnabled`, which nothing in the app ever enforced - no BiometricPrompt, no
+                    // password check - so it promised a lock that did not exist. It is now a link, and
+                    // the caption underneath says so in as many words; see
+                    // SettingsViewModel.openAppLockSettings for how the target page is chosen.
+                    ActionRow(
+                        icon = Icons.Filled.Lock,
+                        title = stringResource(R.string.settings_app_lock),
+                        subtitle = "由系统提供，点这里打开系统设置",
+                        onClick = { viewModel.openAppLockSettings(context) },
+                    )
+                    Text(
+                        text = stringResource(R.string.settings_app_lock_desc),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     ActionRow(
                         icon = Icons.Filled.Info,
@@ -1620,6 +1700,39 @@ fun SettingsScreen(
                         subtitle = "版本信息、使用范围与隐私说明",
                         onClick = onOpenAbout,
                     )
+                }
+            }
+
+            // ------------------------------------------------------- developer options
+            item {
+                ExpandableSettingsSection(
+                    title = stringResource(R.string.settings_section_developer_options),
+                    icon = Icons.Filled.Build,
+                    summary = if (developerUnlocked) {
+                        stringResource(R.string.settings_developer_summary_unlocked)
+                    } else {
+                        stringResource(R.string.settings_developer_needs_password)
+                    },
+                    // The section's own expanded state is not used here: it has to be *opened* by the
+                    // password dialog, and a component that owns its state cannot be opened from
+                    // outside. Hoisting it keeps the header, the animation and the accessibility
+                    // labels identical to every other section.
+                    expandedState = developerExpanded,
+                    onExpandChanged = { developerExpanded = it },
+                ) {
+                    if (developerUnlocked) {
+                        DeveloperOptionsContent(
+                            preferences = preferences,
+                            viewModel = viewModel,
+                        )
+                    } else {
+                        ActionRow(
+                            icon = Icons.Filled.Lock,
+                            title = stringResource(R.string.settings_section_developer_options),
+                            subtitle = stringResource(R.string.settings_developer_needs_password),
+                            onClick = { showDeveloperPassword = true },
+                        )
+                    }
                 }
             }
         }
@@ -1686,6 +1799,10 @@ private fun SettingsSection(
  * @param initiallyExpanded only for a section that is useless closed; everything ships collapsed
  * @param onExpandChanged invoked with the new expanded state, so a caller can lazily load a detail
  *        that is too expensive to read for every visit to the screen
+ * @param expandedState when non-null, the caller owns whether the section is open and this component
+ *        only reports the taps. Needed by exactly one section - 开发者选项, which is opened *by its
+ *        password dialog* rather than by a tap on its own header, something a component that owns its
+ *        state cannot express. Every other caller leaves it null and keeps the saveable behaviour.
  */
 @Composable
 private fun ExpandableSettingsSection(
@@ -1694,13 +1811,15 @@ private fun ExpandableSettingsSection(
     summary: String,
     initiallyExpanded: Boolean = false,
     onExpandChanged: (Boolean) -> Unit = {},
+    expandedState: Boolean? = null,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     // Keyed by title and saveable, so rotating the phone - or coming back from the system Settings
     // app to grant a permission - does not fold away the section the user just opened. Keying by
     // title rather than by index matters for the same reason: a section can be added or reordered
     // without every other section's state moving with it.
-    var expanded by rememberSaveable(title) { mutableStateOf(initiallyExpanded) }
+    var savedExpanded by rememberSaveable(title) { mutableStateOf(initiallyExpanded) }
+    val expanded = expandedState ?: savedExpanded
     // ~180ms: long enough to read as movement rather than a jump cut, short enough that tapping four
     // sections in a row does not leave the user waiting for the list to settle.
     val animationSpec = tween<IntSize>(durationMillis = SETTINGS_EXPAND_MILLIS)
@@ -1720,8 +1839,11 @@ private fun ExpandableSettingsSection(
             modifier = Modifier
                 .fillMaxWidth()
                 .clickable {
-                    expanded = !expanded
-                    onExpandChanged(expanded)
+                    // Both are written: the local copy keeps the saveable value truthful for a
+                    // controlled section that later becomes uncontrolled, and the callback is what
+                    // actually moves a controlled caller.
+                    savedExpanded = !expanded
+                    onExpandChanged(!expanded)
                 }
                 .padding(14.dp),
         ) {
@@ -1780,6 +1902,152 @@ private fun ExpandableSettingsSection(
             }
         }
     }
+}
+
+/**
+ * The controls inside 开发者选项, shown only once the password has been accepted.
+ *
+ * Split out of the screen's `LazyColumn` body for one reason: the two states of this section - locked
+ * (an [ActionRow] that opens the dialog) and unlocked (the switches) - are easier to read as two
+ * composables than as one lambda with an early `if` around most of its content.
+ *
+ * The subtitle of 演示模式 carries all three facts a user needs before switching it on: what appears
+ * (example medications), that they are not their own records, and how the mode ends. A demo mode whose
+ * exit is not stated on the same line is a mode people leave on by accident.
+ */
+@Composable
+private fun DeveloperOptionsContent(
+    preferences: UserPreferences,
+    viewModel: SettingsViewModel,
+) {
+    SwitchRow(
+        title = stringResource(R.string.settings_developer_debug),
+        subtitle = stringResource(R.string.settings_developer_debug_desc),
+        checked = preferences.developerDebugMode,
+        onCheckedChange = viewModel::setDeveloperDebugMode,
+    )
+    SwitchRow(
+        title = stringResource(R.string.settings_developer_demo),
+        subtitle = stringResource(R.string.settings_developer_demo_desc),
+        checked = preferences.demoModeEnabled,
+        onCheckedChange = viewModel::setDemoMode,
+    )
+    // The remaining time and the exit action exist only while the window is actually open. They are
+    // derived from the clock on every recomposition rather than frozen when the section was opened: a
+    // countdown that never moves is worse than no countdown, because it reads as a stuck app.
+    if (preferences.isDemoModeActive()) {
+        Text(
+            text = demoRemainingLabel(preferences.demoModeRemainingMillis()),
+            style = MaterialTheme.typography.bodyMedium,
+            fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.primary,
+        )
+        ActionRow(
+            icon = Icons.Filled.Close,
+            title = stringResource(R.string.settings_developer_exit_demo),
+            subtitle = stringResource(R.string.settings_developer_exit_demo_desc),
+            onClick = { viewModel.setDemoMode(false) },
+        )
+    }
+}
+
+/**
+ * 「演示模式还剩 23 小时 12 分钟」, and 「还剩 42 分钟」 inside the last hour.
+ *
+ * The hours/minutes split is the unit rule from the 文案与术语规范 applied to a duration: a two-unit
+ * figure ("23 小时 12 分钟") is what someone planning around the demo needs, but "0 小时 42 分钟" is not
+ * a thing anyone says. Under a minute the line stops counting altogether - a value that would flicker
+ * between 0 and 1 while the user reads it is noise, and "不到 1 分钟" is the honest answer.
+ */
+@Composable
+private fun demoRemainingLabel(remainingMillis: Long): String = when {
+    remainingMillis < 60_000L ->
+        stringResource(R.string.settings_developer_demo_remaining_soon)
+    remainingMillis < 60L * 60_000L ->
+        stringResource(
+            R.string.settings_developer_demo_remaining_minutes,
+            (remainingMillis / 60_000L).toInt(),
+        )
+    else -> stringResource(
+        R.string.settings_developer_demo_remaining_hours,
+        (remainingMillis / 3_600_000L).toInt(),
+        ((remainingMillis % 3_600_000L) / 60_000L).toInt(),
+    )
+}
+
+/**
+ * The 开发者选项 passphrase prompt.
+ *
+ * ## Why the rejection is shown inside the dialog
+ *
+ * "密码不正确" is an answer to *the attempt the user just made*, so it belongs next to the field that
+ * produced it. A snackbar would be behind the dialog, and the dialog must stay open on a wrong entry -
+ * closing it would throw away the attempt and make the user start over, when the overwhelmingly common
+ * cause is a typo. The message also clears as soon as the text changes, so it can never be read as a
+ * verdict on what the user is typing now.
+ *
+ * The field is not `remember`-ed across a dismiss on purpose: the value is a password, and leaving it
+ * in a saveable slot would put it in the process-death bundle for no benefit.
+ */
+@Composable
+private fun DeveloperPasswordDialog(
+    onDismiss: () -> Unit,
+    onUnlocked: () -> Unit,
+) {
+    var input by remember { mutableStateOf("") }
+    var wrong by remember { mutableStateOf(false) }
+
+    fun submit() {
+        if (input == DEVELOPER_OPTIONS_PASSWORD) onUnlocked() else wrong = true
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.settings_section_developer_options)) },
+        text = {
+            Column {
+                Text(
+                    text = stringResource(R.string.settings_developer_password_prompt),
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                OutlinedTextField(
+                    value = input,
+                    onValueChange = {
+                        input = it
+                        wrong = false
+                    },
+                    label = { Text(stringResource(R.string.settings_developer_password_label)) },
+                    singleLine = true,
+                    isError = wrong,
+                    visualTransformation = PasswordVisualTransformation(),
+                    keyboardOptions = KeyboardOptions(
+                        // The password keyboard, so the value is not shown in the IME's suggestion strip
+                        // while it is being typed - the transformation only masks the field itself.
+                        keyboardType = KeyboardType.Password,
+                        imeAction = ImeAction.Done,
+                    ),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                if (wrong) {
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        text = stringResource(R.string.settings_developer_password_error),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { submit() }) {
+                Text(stringResource(R.string.settings_developer_password_confirm))
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.action_cancel)) }
+        },
+    )
 }
 
 /**
@@ -2049,6 +2317,101 @@ private fun NumberOptionRow(
     labelOf: (Int) -> String,
     onSelect: (Int) -> Unit,
 ) = ChipRow(title, options, selected, labelOf, onSelect)
+
+/**
+ * The closed-state face of a dropdown: the current value, plus the arrow that promises more.
+ *
+ * Shared by [DropdownSettingRow] and by the two quiet-hours time pickers, which need to look like
+ * exactly the same control while still opening the minute-precise [TimePickerDialog] behind it. Making
+ * the time pickers look like a menu is the point: a chip that is never "selected" reads as a toggle
+ * that failed, whereas a value with an arrow reads as "tap to change me".
+ */
+@Composable
+private fun DropdownButton(
+    label: String,
+    contentDescription: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+) {
+    OutlinedButton(
+        onClick = onClick,
+        enabled = enabled,
+        modifier = modifier.defaultMinSize(minHeight = MaterialTheme.prefs.minTouchTargetDp.dp),
+    ) {
+        Text(
+            text = label,
+            // Weighted so a long value wraps inside the button instead of clipping: at the 1.5x
+            // in-app font scale - plus whatever the system adds on top - a label like
+            // "开始 22:00" no longer fits beside the icon.
+            modifier = Modifier.weight(1f),
+            style = MaterialTheme.typography.bodyMedium,
+        )
+        Icon(Icons.Filled.ArrowDropDown, contentDescription = contentDescription)
+    }
+}
+
+/**
+ * A mutually exclusive choice with enough options that showing them all costs more than it explains.
+ *
+ * A chip row wins whenever the alternatives are few enough to compare at a glance; that is why the
+ * theme, the accent colour and the ring mode stay chips. It loses once the list is long and the user
+ * already knows what they want: a self-check interval or a snooze delay is a lookup, not a comparison.
+ *
+ * The selected label is rendered while the menu is closed, so the current value is never hidden behind
+ * a tap - the alternatives are what wait.
+ *
+ * @param options id to label, in the order they should appear. The ids are the ones the view model
+ *        already persists, so nothing about storage changes.
+ */
+@Composable
+private fun DropdownSettingRow(
+    title: String,
+    subtitle: String = "",
+    options: List<Pair<String, String>>,
+    selectedId: String,
+    onSelect: (String) -> Unit,
+    enabled: Boolean = true,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    // Falling back to the first option keeps the button from ever rendering empty, which would read as
+    // a broken control rather than as a setting.
+    val selectedLabel = options.firstOrNull { it.first == selectedId }?.second
+        ?: options.firstOrNull()?.second.orEmpty()
+
+    Column(modifier = Modifier.padding(vertical = 6.dp)) {
+        Text(title, style = MaterialTheme.typography.bodyLarge)
+        if (subtitle.isNotEmpty()) {
+            Spacer(modifier = Modifier.height(2.dp))
+            Text(
+                text = subtitle,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Spacer(modifier = Modifier.height(6.dp))
+        Box {
+            DropdownButton(
+                label = selectedLabel,
+                contentDescription = "$title，当前 $selectedLabel",
+                onClick = { expanded = true },
+                enabled = enabled,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+                options.forEach { (id, label) ->
+                    DropdownMenuItem(
+                        text = { Text(label, style = MaterialTheme.typography.bodyMedium) },
+                        onClick = {
+                            onSelect(id)
+                            expanded = false
+                        },
+                    )
+                }
+            }
+        }
+    }
+}
 
 /**
  * A tappable action with an icon and a chevron.

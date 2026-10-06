@@ -368,6 +368,40 @@ data class UserPreferences(
      * an existing user sees it exactly one time and never again - including after later updates.
      */
     val agreementAcceptedVersion: Int = 0,
+
+    // ------------------------------------------------------- developer options
+
+    /**
+     * Write verbose diagnostics and expose the internal self-check details.
+     *
+     * Off by default, and deliberately independent of `BuildConfig.DEBUG`: the point of shipping this
+     * switch is to be able to ask a user on a *release* build to turn it on and send a log, which is the
+     * only way to diagnose the ROM-specific failures this app keeps running into - and `BuildConfig.DEBUG`
+     * is false in exactly the build that needs diagnosing.
+     */
+    val developerDebugMode: Boolean = false,
+
+    /**
+     * Demo mode: the app shows and reminds a fixed set of example medications.
+     *
+     * A *time-bounded* flag rather than a plain boolean, because the realistic accident is leaving it on:
+     * a user enables it to look around, forgets, and can no longer tell their own prescriptions from the
+     * examples. [demoModeUntilMillis] therefore carries its own expiry, and the settings screen and the
+     * today screen both offer a way to end it immediately.
+     */
+    val demoModeEnabled: Boolean = false,
+
+    /**
+     * When demo mode turns itself off, as an absolute instant.
+     *
+     * 0 means "not scheduled", which is only the state before the first enable. Absolute rather than a
+     * duration so that a process restart, a reboot or a paused app cannot extend the window - the whole
+     * reason for the bound is that nobody remembers to end it.
+     */
+    val demoModeUntilMillis: Long = 0L,
+
+    /** When demo mode was last enabled; used to show "还剩 N 小时" honestly. */
+    val demoModeStartedAtMillis: Long = 0L,
 ) {
 
     /** True when [minuteOfDay] falls inside the configured quiet hours (handles wrap past midnight). */
@@ -384,6 +418,21 @@ data class UserPreferences(
 
     /** Radius used by every rounded card, scaled up in simplified/high-contrast mode. */
     val cardCornerDp: Int get() = if (simplifiedMode) 24 else 20
+
+    /**
+     * True while demo mode is active *right now*, as opposed to merely switched on.
+     *
+     * The expiry is evaluated on read rather than by a scheduled job: a job can be missed (the app was
+     * force-stopped, the device was off, the OEM cleaner removed the alarm), whereas comparing two
+     * timestamps cannot. Every consumer of demo mode goes through this, so a demo that has outlived its
+     * window is invisible even before anything has tidied the stored flag away.
+     */
+    fun isDemoModeActive(nowMillis: Long = System.currentTimeMillis()): Boolean =
+        demoModeEnabled && demoModeUntilMillis > 0L && nowMillis < demoModeUntilMillis
+
+    /** How long demo mode has left, or 0 when it is not active. */
+    fun demoModeRemainingMillis(nowMillis: Long = System.currentTimeMillis()): Long =
+        if (!isDemoModeActive(nowMillis)) 0L else demoModeUntilMillis - nowMillis
 
     /**
      * The ringing behaviour these settings describe, as a pure value.

@@ -92,7 +92,13 @@ fun AgreementGate(
     onAccepted: () -> Unit,
     onDeclined: () -> Unit = {},
 ) {
-    val context = LocalContext.current
+    // The Activity is what has to be finished by "不同意，退出", and it cannot be reached by casting
+    // `LocalContext` directly: the context a composable receives is a `ContextWrapper` around the themed
+    // Activity, so `context as? Activity` silently returns null and the button appears to do nothing -
+    // leaving the user on a gate with no way past it except force-stopping the app. The wrapper chain is
+    // therefore walked explicitly. (`LocalActivity` would be tidier but only exists in newer
+    // activity-compose releases than this module pins.)
+    val activity = LocalContext.current.findActivity()
     var tab by remember { mutableIntStateOf(0) }
     var termsRead by remember { mutableStateOf(false) }
     var guideRead by remember { mutableStateOf(false) }
@@ -196,7 +202,17 @@ fun AgreementGate(
                         modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        TextButton(onClick = { onDeclined(); (context as? android.app.Activity)?.finish() }) {
+                        TextButton(
+                            onClick = {
+                                // The callback first, so a host that wants to react (log, navigate) can;
+                                // then the Activity finishes, which is the part that actually leaves the
+                                // app. `finish()` rather than `finishAffinity()`: the gate is shown on the
+                                // only Activity this app has, so there is nothing beneath it to reveal -
+                                // and `finishAffinity` would tear down a task this screen does not own.
+                                onDeclined()
+                                activity?.finish()
+                            },
+                        ) {
                             Text("不同意，退出")
                         }
                         Spacer(Modifier.weight(1f))
@@ -341,3 +357,16 @@ private fun AgreementCheckRow(
 
 /** How long both documents must be open before they can be acknowledged. */
 const val READING_SECONDS = 15
+
+/**
+ * Walks the `ContextWrapper` chain to the hosting Activity, or null when there is none.
+ *
+ * A composable's `LocalContext` is a `ContextWrapper` (the theme wrapper, then the Activity), so a plain
+ * cast to `Activity` fails for the same reason it fails inside a `RecyclerView` adapter. Recursion is the
+ * documented way to resolve it and is bounded by the wrapper depth, which is two in practice.
+ */
+private tailrec fun android.content.Context.findActivity(): android.app.Activity? = when (this) {
+    is android.app.Activity -> this
+    is android.content.ContextWrapper -> baseContext.findActivity()
+    else -> null
+}

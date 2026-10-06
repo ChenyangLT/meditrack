@@ -13,7 +13,7 @@
     <!-- Today screen -->
     <string name="today_title">今日用药</string>
     <string name="today_empty_title">今天没有用药计划</string>
-    <string name="today_empty_body">先添加一个药品并设置服药时间，到点就会提醒你。</string>
+    <string name="today_empty_body">先添加一个药品并设置服药时间，到时间会提醒你。</string>
     <string name="today_add_medication">添加药品</string>
     <string name="today_progress">已完成 %1$d/%2$d</string>
     <string name="today_all_done">今日用药已完成 ✅</string>
@@ -29,21 +29,21 @@
     <string name="status_missed">未服药</string>
 
     <!-- Dose actions -->
-    <string name="action_taken">已服</string>
+    <string name="action_taken">已服用</string>
     <string name="action_skip">跳过</string>
-    <string name="action_snooze">稍后 %1$d 分钟</string>
-    <string name="action_snooze_short">稍后</string>
-    <string name="snooze_dialog_title">推迟多久提醒？</string>
-    <string name="snooze_dialog_hint">在原定服药时间基础上顺延，不会提前</string>
+    <string name="action_snooze">稍后提醒 %1$d 分钟</string>
+    <string name="action_snooze_short">稍后提醒</string>
+    <string name="snooze_dialog_title">稍后提醒多久？</string>
+    <string name="snooze_dialog_hint">从计划时间起顺延，不会提前</string>
     <string name="snooze_option_at">%1$d 分钟后 · %2$s</string>
-    <string name="snooze_dialog_confirm">推迟</string>
+    <string name="snooze_dialog_confirm">稍后提醒</string>
     <string name="action_undo">撤销</string>
     <string name="action_edit">编辑</string>
     <string name="action_delete">删除</string>
     <string name="action_reset">重置记录</string>
     <string name="action_increase">增加</string>
     <string name="action_decrease">减少</string>
-    <string name="action_mark_taken">标记已服</string>
+    <string name="action_mark_taken">标记已服用</string>
     <string name="action_add_medication">添加药品</string>
     <string name="action_save">保存</string>
     <string name="action_cancel">取消</string>
@@ -53,37 +53,37 @@
 
     <!-- Over-dose dialog -->
     <string name="overdose_title">是否确认多服？</string>
-    <string name="overdose_body">本次记录将达到 %1$s，超过你设置的每次最大剂量 %2$s。多服可能有害，请确认后继续。</string>
+    <string name="overdose_body">本次记录将达到 %1$s，超过你设置的单次上限 %2$s。多服可能有害，请确认后继续。</string>
     <string name="overdose_confirm">确认多服</string>
 
     <!-- Notifications -->
     <string name="notification_group_reminders">用药提醒</string>
     <string name="notification_channel_reminder_alert">用药提醒（横幅 + 锁屏 + 响铃）</string>
-    <string name="notification_channel_reminder_alert_desc">到点弹出顶部横幅、显示在锁屏上，并播放提醒铃声。需要响铃时在设置里打开「提醒铃声」。</string>
+    <string name="notification_channel_reminder_alert_desc">到服药时间会弹出顶部横幅、显示在锁屏上，并播放提醒铃声。需要在设置中打开「提醒铃声」。</string>
     <!-- The channel description names the chosen tone, so the system's own notification list shows which
          of the five tones this channel plays. %1$s is the tone name. -->
-    <string name="notification_channel_reminder_alert_desc_tone">到点弹出顶部横幅、显示在锁屏上，并播放内置铃声「%1$s」。铃声可在应用设置里更换。</string>
+    <string name="notification_channel_reminder_alert_desc_tone">到服药时间会弹出顶部横幅、显示在锁屏上，并播放内置铃声「%1$s」。铃声可在应用设置中更换。</string>
     <string name="notification_channel_reminder_vibrate">用药提醒（横幅 + 锁屏 + 震动，不响铃）</string>
-    <string name="notification_channel_reminder_vibrate_desc">屏幕顶部弹出横幅、锁屏可见、震动提醒，但不播放铃声。默认使用此项。</string>
+    <string name="notification_channel_reminder_vibrate_desc">屏幕顶部弹出横幅、锁屏可见并震动，不播放铃声。默认使用此项。</string>
     <string name="notification_channel_reminder_quiet">用药提醒（仅通知栏）</string>
-    <string name="notification_channel_reminder_quiet_desc">只在下拉通知栏显示，不弹横幅、不打扰当前操作。</string>
+    <string name="notification_channel_reminder_quiet_desc">只在通知栏显示，不弹横幅，也不影响当前操作。</string>
     <string name="notification_channel_reminder_silent">用药提醒（完全静音）</string>
-    <string name="notification_channel_reminder_silent_desc">免打扰时段、以及手机闲置时暂缓后补发的提醒，只显示不响铃不震动。</string>
+    <string name="notification_channel_reminder_silent_desc">免打扰时段内的提醒，以及暂缓后补发的提醒，只显示不响铃不震动。</string>
     <string name="notification_channel_missed">未服药提醒</string>
     <string name="notification_channel_missed_desc">超过计划时间仍未记录时的提醒。</string>
     <string name="notification_channel_reminder_upcoming">用药提醒（提前预告）</string>
-    <string name="notification_channel_reminder_upcoming_desc">在服药时间之前提前告知，只在下拉通知栏显示，不响铃也不震动。</string>
-    <string name="notification_channel_snooze_state">推迟状态</string>
-    <string name="notification_channel_snooze_state_desc">显示「已推迟到几点」，提醒你这次还没有吃。</string>
+    <string name="notification_channel_reminder_upcoming_desc">在服药时间之前提前提醒，只在通知栏显示，不响铃也不震动。</string>
+    <string name="notification_channel_snooze_state">稍后提醒状态</string>
+    <string name="notification_channel_snooze_state_desc">显示这次稍后提醒到几点，提示你还没有记录。</string>
     <string name="notification_channel_status">状态提示</string>
     <string name="notification_channel_status_desc">操作后的简短确认提示。</string>
     <string name="notification_channel_guard">后台守护</string>
-    <string name="notification_channel_guard_desc">保持药准时在后台运行，确保到点能提醒。这条常驻通知本身不会响铃或震动。</string>
+    <string name="notification_channel_guard_desc">保持药准时在后台运行，确保到时间能提醒。这条常驻通知不会响铃或震动。</string>
 
     <!-- Background guard service -->
     <string name="guard_notification_title">药准时正在守护提醒</string>
     <string name="guard_notification_starting">正在启动…</string>
-    <string name="guard_notification_running">到点会正常提醒</string>
+    <string name="guard_notification_running">到时间会正常提醒</string>
     <string name="guard_notification_next_at">下一个提醒：%1$s</string>
     <string name="guard_notification_next_at_named">下一个提醒：%1$s %2$s</string>
 
@@ -94,8 +94,8 @@
       rather than a timestamp. The exact stored minute is still shown one line below, in the expanded
       detail, so the friendly phrasing never costs the user clinical precision.
     -->
-    <string name="notification_title_dose">该吃药了：%1$s</string>
-    <string name="notification_title_dose_human">该吃药了：%1$s</string>
+    <string name="notification_title_dose">该服用：%1$s</string>
+    <string name="notification_title_dose_human">该服用：%1$s</string>
     <string name="notification_title_pre">还有 %1$d 分钟：%2$s</string>
     <string name="notification_title_catchup">还没记录：%1$s</string>
     <string name="notification_title_missed">未服药提醒：%1$s</string>
@@ -104,18 +104,18 @@
     <!--
       The unlock catch-up («解锁补提醒»).
 
-      Phrased as a status the user can still act on ("还没吃") rather than as an alarm that failed,
+      Phrased as a status the user can still act on ("还没记录") rather than as an alarm that failed,
       because that is what it is: a second chance, not a complaint. The multi-dose summary says how
       many are outstanding, since that is the one number that matters when three of them are.
     -->
-    <string name="notification_title_unlock_single">还没吃：%1$s</string>
+    <string name="notification_title_unlock_single">还没记录：%1$s</string>
     <string name="notification_body_unlock_single">%1$s 这一次还没有记录</string>
-    <string name="notification_title_unlock_summary">你还有 %1$d 项没吃</string>
+    <string name="notification_title_unlock_summary">你还有 %1$d 项没有记录</string>
     <string name="notification_line_unlock_item">%1$s · %2$s · %3$s</string>
-    <string name="notification_line_unlock_how">解锁时补提醒：点「已服」记录，或点「稍后」把它推到稍后。</string>
-    <string name="notification_title_snooze_state">已推迟：%1$s</string>
-    <string name="notification_body_snooze_state">将在 %1$s 再提醒你</string>
-    <string name="notification_body_catchup">%1$s那次还没有记录。如果已经吃过，点一下「已服」补记即可。</string>
+    <string name="notification_line_unlock_how">解锁时补提醒：点「已服用」记录，或点「稍后提醒」延后这次提醒。</string>
+    <string name="notification_title_snooze_state">稍后提醒：%1$s</string>
+    <string name="notification_body_snooze_state">将在 %1$s 提醒你</string>
+    <string name="notification_body_catchup">%1$s 那次还没有记录。如果已经服用，点「已服用」补记即可。</string>
     <string name="notification_body_planned">计划 %1$s</string>
     <string name="notification_body_missed">计划 %1$s · 已记录 %2$s</string>
     <!-- Multi-line notification detail. Each line is optional; blank fields are skipped. -->
@@ -128,15 +128,15 @@
     <string name="notification_line_stock">剩余库存：%1$s</string>
     <string name="notification_line_deferred">（此前手机未使用，已为你暂缓）</string>
     <string name="notification_line_missed_recorded">已记录：%1$s</string>
-    <string name="notification_line_pre">还没到服药时间，先提醒你准备一下。</string>
+    <string name="notification_line_pre">还没到服药时间，提前提醒你准备。</string>
     <string name="notification_line_late">说明：本次提醒比计划时间%1$s</string>
-    <string name="notification_line_snooze_how">到时间会重新提醒你；也可以直接点「现在服用」。</string>
+    <string name="notification_line_snooze_how">到时间会再次提醒；也可以直接点「现在服用」。</string>
     <string name="notification_action_take_now">现在服用</string>
 
     <!-- Self-check -->
     <string name="self_test_title">测试提醒</string>
     <string name="self_test_body">如果你看到这条通知，说明提醒通道正常。</string>
-    <string name="self_test_detail">这条测试通知使用了与真实用药提醒完全相同的通道、铃声与震动设置，因此它出现的样子就是真实提醒的样子。</string>
+    <string name="self_test_detail">这条测试通知使用与真实用药提醒相同的通道、铃声与震动设置。它出现的样子就是真实提醒的样子。</string>
 
     <!-- Toasts / confirmations -->
     <string name="toast_marked_taken">已记录服药</string>
@@ -168,9 +168,9 @@
     <string name="editor_strength">规格</string>
     <string name="editor_strength_hint">例如：100mg/片</string>
     <string name="editor_dose">每次剂量</string>
-    <string name="editor_max_dose">单次最大剂量</string>
-    <string name="editor_max_dose_hint">超过时提醒确认多服；填 0 表示不限制</string>
-    <string name="editor_times">提醒时间</string>
+    <string name="editor_max_dose">单次上限</string>
+    <string name="editor_max_dose_hint">填 0 表示不限制；超过时会先请你确认是否多服</string>
+    <string name="editor_times">服药时间</string>
     <string name="editor_add_time">添加时间</string>
     <string name="editor_times_required">请至少添加一个服药时间</string>
     <string name="editor_food_timing">服用时机</string>
@@ -179,9 +179,9 @@
     <string name="editor_no_end_date">不设结束</string>
     <string name="editor_note">备注</string>
     <string name="editor_note_hint">例如：温水送服，不要空腹</string>
-    <string name="editor_stock">库存数量</string>
-    <string name="editor_stock_hint">吃药后自动扣减；填 0 表示不追踪</string>
-    <string name="editor_stock_alert">库存提醒阈值</string>
+    <string name="editor_stock">库存</string>
+    <string name="editor_stock_hint">服用后自动扣减；填 0 表示不追踪</string>
+    <string name="editor_stock_alert">库存提醒</string>
     <string name="editor_reminder_enabled">开启提醒</string>
     <string name="editor_repeat_daily">每天</string>
     <string name="editor_repeat_every_other">隔天</string>
@@ -194,7 +194,7 @@
     <!-- Medications list -->
     <string name="medications_title">我的药品</string>
     <string name="medications_empty_title">还没有添加药品</string>
-    <string name="medications_empty_body">点击右下角的按钮添加第一个药品。</string>
+    <string name="medications_empty_body">添加第一个药品，然后设置每天的服药时间。</string>
     <string name="medications_count">共 %1$d 种药品</string>
     <string name="medications_active">启用中</string>
     <string name="medications_inactive">已停用</string>
@@ -210,17 +210,17 @@
     <string name="history_streak_unit">%1$d 天</string>
     <string name="history_missed_count">未服药次数</string>
     <string name="history_total_doses">总计划次数</string>
-    <string name="history_taken_doses">已服次数</string>
+    <string name="history_taken_doses">已服用次数</string>
     <string name="history_range_7">近 7 天</string>
     <string name="history_range_30">近 30 天</string>
     <string name="history_range_90">近 90 天</string>
     <string name="history_all_medications">全部药品</string>
     <string name="history_day_detail">当日记录</string>
     <string name="history_no_records">这一天没有记录</string>
-    <string name="history_legend_taken">已服</string>
-    <string name="history_legend_partial">部分</string>
-    <string name="history_legend_missed">漏服</string>
-    <string name="history_legend_skipped">跳过</string>
+    <string name="history_legend_taken">已服用</string>
+    <string name="history_legend_partial">部分服用</string>
+    <string name="history_legend_missed">未服药</string>
+    <string name="history_legend_skipped">已跳过</string>
     <string name="history_legend_none">无计划</string>
 
     <!-- Settings -->
@@ -256,11 +256,11 @@
     <string name="settings_vibration">震动</string>
     <string name="settings_override_silent">静音时仍然响铃</string>
     <string name="settings_repeat_minutes">重复提醒间隔</string>
-    <string name="settings_snooze_minutes">稍后提醒时长</string>
+    <string name="settings_snooze_minutes">稍后提醒间隔</string>
     <string name="settings_missed_grace">未服药判定时间</string>
     <string name="settings_missed_reminder">未服药时提醒我</string>
     <string name="settings_quiet_hours">免打扰时段</string>
-    <string name="settings_quiet_hours_desc">该时段内提醒不会响铃，但仍会显示在通知栏。</string>
+    <string name="settings_quiet_hours_desc">免打扰时段内提醒不会响铃，但仍显示在通知栏。</string>
     <string name="settings_minutes">%1$d 分钟</string>
     <string name="settings_notification_permission">通知权限</string>
     <string name="settings_exact_alarm_permission">精确闹钟权限</string>
@@ -272,7 +272,7 @@
     <string name="settings_import">从文件导入</string>
     <string name="settings_import_warning">导入会覆盖当前所有数据，请先导出备份。</string>
     <string name="settings_app_lock">应用锁</string>
-    <string name="settings_app_lock_desc">打开应用时需要指纹或锁屏密码。</string>
+    <string name="settings_app_lock_desc">锁由系统提供，应用只负责打开系统的设置。</string>
     <string name="settings_widget">桌面小组件</string>
     <string name="settings_widget_items">最多显示条目数</string>
     <string name="settings_widget_refresh">刷新间隔</string>
@@ -288,7 +288,7 @@
     <string name="about_author_note">本应用以 MIT 许可证开源，源码与各版本安装包可在项目主页获取。</string>
 
     <!-- Reminder reliability self-check -->
-    <string name="settings_reliability_intro">提醒是否准时，取决于下面这些系统状态。应用会自己核对，并在需要时给出可执行的建议。</string>
+    <string name="settings_reliability_intro">提醒是否准时，取决于下面这些系统状态。应用会自行核对，并在需要时给出建议。</string>
     <string name="settings_reliability_run_check">立即自检并修复</string>
     <string name="settings_reliability_send_test">发送测试通知</string>
     <string name="settings_reliability_stats">近 24 小时：投递 %1$d 次，主动跳过 %2$d 次</string>
@@ -302,20 +302,20 @@
 
     <!-- Humanised timing options -->
     <string name="settings_pre_reminder">提前预告</string>
-    <string name="settings_pre_reminder_desc">在服药时间之前先提醒一次，让你有时间准备。它同时也是一次独立的提醒机会。</string>
+    <string name="settings_pre_reminder_desc">在服药时间之前先提醒一次，给你时间准备。这次提醒会单独计算。</string>
     <string name="settings_pre_reminder_lead">提前多久</string>
     <string name="settings_digest">合并同一时段的提醒</string>
-    <string name="settings_digest_desc">把几分钟内到期的多种药合并成一条通知，避免连续多次弹窗。</string>
+    <string name="settings_digest_desc">把几分钟内到期的多种药合并成一条通知，避免连续提醒多次。</string>
     <string name="settings_cluster_window">合并的时间范围</string>
     <string name="settings_snooze_state">「稍后提醒」后保留状态</string>
-    <string name="settings_snooze_state_desc">推迟后在通知栏保留一条「已推迟到几点」，不会像以前那样直接消失。</string>
-    <string name="settings_catch_up">错过时间后提示补记</string>
-    <string name="settings_catch_up_desc">提醒迟到太久时不再响铃，而是安静地提示「如果已经吃过，点一下补记」。</string>
-    <string name="settings_stale_reminder">多久之后算「太晚了」</string>
+    <string name="settings_snooze_state_desc">稍后提醒后在通知栏保留一条状态，不会直接消失。</string>
+    <string name="settings_catch_up">提醒迟到后提示补记</string>
+    <string name="settings_catch_up_desc">提醒迟到太久时不再响铃，只提示「如果已经服用，点一下补记」。</string>
+    <string name="settings_stale_reminder">多久之后视为迟到</string>
     <string name="settings_quiet_defer">免打扰时段内顺延提醒</string>
-    <string name="settings_quiet_defer_desc">免打扰时段内到点的提醒，会等到时段结束再发，而不是静默地发一条没人看得到的通知。</string>
+    <string name="settings_quiet_defer_desc">免打扰时段内到时间的提醒会等到时段结束再发，不会静默发出。</string>
     <string name="settings_heartbeat">自检频率</string>
-    <string name="settings_heartbeat_desc">每隔这么久重新核对全部提醒并补齐丢失的闹钟。数值越小越不容易漏，但耗电略高。</string>
+    <string name="settings_heartbeat_desc">按这个间隔重新核对全部提醒，补齐丢失的闹钟。数值越小越不容易漏，但耗电略高。</string>
     <string name="settings_alarm_clock">闹钟级提醒</string>
     <string name="settings_alarm_clock_desc">使用系统最高优先级的闹钟通道，不受省电模式影响。状态栏会出现一个闹钟图标。</string>
     <string name="settings_reliability_worker">后台定期核对</string>
@@ -323,9 +323,9 @@
 
     <!-- Onboarding -->
     <string name="onboarding_title">让提醒可靠地工作</string>
-    <string name="onboarding_body">药准时需要几项权限才能保证到点提醒。缺少权限时提醒可能延迟或收不到。</string>
+    <string name="onboarding_body">药准时需要几项权限才能保证准时提醒。缺少权限时提醒可能延迟或收不到。</string>
     <string name="onboarding_grant">去授权</string>
-    <string name="onboarding_skip">稍后再说</string>
+    <string name="onboarding_skip">暂时跳过</string>
     <string name="onboarding_done">完成</string>
 
     <!-- About / disclaimer -->
@@ -339,7 +339,7 @@
       the label and description say what it shows rather than naming a size.
     -->
     <string name="widget_label">药准时 · 今日用药</string>
-    <string name="widget_description">即将服用排最前（黄色），其次未服药（红色），已服用为绿色。可拖动边缘调整大小。</string>
+    <string name="widget_description">待服用排最前（黄色），其次未服药（红色），已服用为绿色。可拖动边缘调整大小。</string>
     <string name="widget_title">今日用药</string>
     <string name="widget_all_done">今日用药已完成 ✅</string>
     <string name="widget_no_plan">今天没有用药计划</string>
@@ -352,7 +352,7 @@
     <string name="notification_channel_ringing">正在响铃</string>
     <string name="notification_channel_ringing_desc">提醒正在响铃期间显示的常驻通知，带一个「停止响铃」按钮。停止后这条通知会消失，用药提醒仍然保留在通知栏。</string>
     <string name="ringing_title">正在响铃：%1$s</string>
-    <string name="ringing_body">点「已服用」「稍后」或「跳过」即可停止响铃</string>
+    <string name="ringing_body">点「已服用」「稍后提醒」或「跳过」即可停止响铃。</string>
     <string name="ringing_countdown">%1$s</string>
     <string name="action_stop_ringing">停止响铃</string>
     <string name="ringing_stopped">已停止响铃</string>
@@ -364,13 +364,13 @@
     <string name="notification_title_review">该去复查了：%1$s</string>
     <string name="notification_body_review">%1$s · %2$s</string>
     <string name="notification_line_review_note">医生嘱托：%1$s</string>
-    <string name="notification_line_review_no_note">（你还没有填写医生说的复查时间，建议补上）</string>
-    <string name="notification_line_review_how">复查后请到「药品 → 该药 → 复查提醒」里点「开始新一轮」，提醒会重新开始计数。</string>
+    <string name="notification_line_review_no_note">（还没有填写医生嘱托的复查时间，建议补上）</string>
+    <string name="notification_line_review_how">复查后请到「药品 → 该药 → 复查提醒」中点击「开始新一轮」，提醒会重新计数。</string>
     <string name="action_review_ack">我知道了</string>
     <string name="action_review_search">去搜索</string>
     <string name="review_search_no_browser">这台手机没有可用的浏览器，无法打开搜索</string>
     <string name="review_advance_title">快到复查时间了：%1$s</string>
-    <string name="review_advance_body">%1$s，%2$s。别忘了提前挂号。</string>
+    <string name="review_advance_body">%1$s，%2$s。请提前挂号。</string>
 
     <!-- First-run agreement -->
     <string name="agreement_title">用户协议与使用说明</string>
@@ -426,7 +426,7 @@
     -->
     <!-- 复查提醒（药品编辑页） -->
     <string name="editor_section_review">复查提醒</string>
-    <string name="editor_review_intro">这个药吃多久要去复查，应用没法自己判断——只有开药的医生知道。你可以把医生说的话写下来，也可以先搜一下。</string>
+    <string name="editor_review_intro">这个药吃多久要去复查，应用没法自己判断，只有开药的医生知道。你可以把医生嘱托写下来，也可以先搜一下。</string>
     <string name="editor_review_search_title">关于搜索</string>
     <string name="editor_review_search_button">去搜索：%1$s</string>
     <string name="editor_review_search_will">将用「%1$s」搜索：%2$s</string>
@@ -434,13 +434,13 @@
     <string name="editor_review_search_query">搜索问句</string>
     <string name="editor_review_search_query_hint">最多 %1$d 个字，药品名会自动加在最前面。</string>
     <string name="editor_review_note_title">关于备注</string>
-    <string name="editor_review_note">医生怎么说（复查备注）</string>
+    <string name="editor_review_note">医生嘱托（复查备注）</string>
     <string name="editor_review_note_hint">例如：3 个月后复查肝功能</string>
-    <string name="editor_review_note_desc">这段话会原样显示在红色的复查通知和锁屏上，所以请写得简短、准确，例如复查项目和大概时间。</string>
+    <string name="editor_review_note_desc">这段话会原样显示在红色的复查通知和锁屏上。请写得简短、准确，例如复查项目和大概时间。</string>
     <string name="editor_review_count_mode">计数方式</string>
-    <string name="editor_review_mode_doses_desc">只统计真正记录为「已服」的次数；跳过和漏服不算。</string>
+    <string name="editor_review_mode_doses_desc">只统计记录为「已服用」的次数；已跳过和未服药不算。</string>
     <string name="editor_review_mode_days_desc">从开始计数那天算起，按自然日计算，第一天算第 1 天。</string>
-    <string name="editor_review_mode_quantity_desc">把每次服用的量累加起来，按%1$s计算。</string>
+    <string name="editor_review_mode_quantity_desc">把每次服用的量累加起来，按 %1$s 计算。</string>
     <string name="editor_review_threshold">复查阈值</string>
     <string name="editor_review_threshold_label">达到多少就提醒复查</string>
     <string name="editor_review_threshold_desc">填 0 表示不提醒复查。保存后如果改了这个数字，正在进行的这一轮会自动按新数字计算。</string>
@@ -450,7 +450,7 @@
     <string name="editor_review_due_body">已经数到 %1$d %2$s。复查后点下面的按钮，计数会从 0 重新开始，提醒也会重新打开。</string>
     <string name="editor_review_new_round">开始新一轮</string>
     <string name="editor_review_switch">开启复查提醒</string>
-    <string name="editor_review_switch_desc">到时间会发一条醒目的通知。数到的当天会自动关闭，点「开始新一轮」后会重新打开。</string>
+    <string name="editor_review_switch_desc">到时间会发一条醒目的通知。数到的当天自动关闭，点「开始新一轮」后重新打开。</string>
     <string name="editor_review_last_round">上一轮：第 %1$d 轮，%2$s 复查，共 %3$s</string>
     <string name="editor_review_draft_note">还没保存的内容，会跟这个药品一起保存。</string>
     <string name="editor_review_need_save">请先保存这个药品，保存后会从头开始计数</string>
@@ -467,12 +467,12 @@
     <string name="ringtone_global_note">这个药品目前使用全局铃声。在下面选择的铃声会成为全局默认，已经单独设置过铃声的其他药品不受影响。</string>
     <string name="ringtone_builtin">内置铃声</string>
     <string name="ringtone_builtin_desc">五段内置铃声，装在应用里，不受系统铃声设置影响。</string>
-    <string name="ringtone_mine">我的铃声</string>
+    <string name="ringtone_mine">自定义铃声</string>
     <string name="ringtone_mine_empty">还没有自定义铃声。用下面的「选择本地音频」或「裁剪一个片段」添加一个。</string>
     <string name="ringtone_add">添加自定义铃声</string>
     <string name="ringtone_pick_local">选择本地音频</string>
     <string name="ringtone_trim_clip">裁剪一个片段</string>
-    <string name="ringtone_add_desc">「选择本地音频」直接整段使用；「裁剪一个片段」会打开波形图，让你只截取其中一段。</string>
+    <string name="ringtone_add_desc">「选择本地音频」直接整段使用；「裁剪一个片段」会打开波形图，让你只保留其中一段。</string>
     <string name="ringtone_pick_system">从系统铃声选择</string>
     <string name="ringtone_pick_system_collapse">收起系统铃声</string>
     <string name="ringtone_system_no_trim">系统铃声不支持裁剪，会整首使用。</string>
@@ -496,8 +496,8 @@
     <string name="ringtone_import_unreadable">这个音频读不出声音，换一个试试（支持 MP3 / M4A / AAC / WAV / FLAC）</string>
     <string name="ringtone_imported">已添加「%1$s」并设为提醒铃声</string>
     <string name="ringtone_copy_title">为什么要复制一份</string>
-    <string name="ringtone_copy_body">选中的铃声会被复制到应用自己的目录里。这样即使你以后删掉原来的歌曲、换了音乐应用，或者手机重启，提醒到点仍然会响。</string>
-    <string name="ringtone_default_name">我的铃声</string>
+    <string name="ringtone_copy_body">选中的铃声会被复制到应用自己的目录里。这样即使你以后删掉原来的歌曲、换了音乐应用，或者手机重启，提醒仍然会准时响。</string>
+    <string name="ringtone_default_name">自定义铃声</string>
     <string name="ringtone_unnamed">未命名铃声</string>
     <string name="ringtone_try_another">换一个试试</string>
 
@@ -522,4 +522,27 @@
     <string name="trim_limits">只会保存你选中的这一段（最长 %1$d 秒，最短 %2$d 秒），原来的音频文件不会被改动或删除。</string>
     <string name="trim_source">来源：%1$s</string>
     <string name="trim_sound_off">提醒铃声的总开关目前是关闭的，保存后请到「设置 → 提醒铃声」里打开</string>
+
+    <!-- Developer options -->
+    <!--
+      开发者选项. The section is revealed by a passphrase (see SettingsScreen.DEVELOPER_OPTIONS_PASSWORD),
+      so the wording of its locked state is the only thing most users will ever read: it says what the
+      gate *is* (需要密码) rather than what it hides.
+    -->
+    <string name="settings_section_developer_options">开发者选项</string>
+    <string name="settings_developer_needs_password">需要密码</string>
+    <string name="settings_developer_summary_unlocked">调试模式、演示模式</string>
+    <string name="settings_developer_password_prompt">输入密码后才能修改这些设置。</string>
+    <string name="settings_developer_password_label">密码</string>
+    <string name="settings_developer_password_error">密码不正确</string>
+    <string name="settings_developer_password_confirm">确定</string>
+    <string name="settings_developer_debug">调试模式</string>
+    <string name="settings_developer_debug_desc">写入详细日志，用于排查「为什么没提醒」；反馈问题时打开</string>
+    <string name="settings_developer_demo">演示模式</string>
+    <string name="settings_developer_demo_desc">用示例药品试用界面，不是你的用药记录；24 小时后自动结束，也可在今日用药里退出</string>
+    <string name="settings_developer_demo_remaining_hours">演示模式还剩 %1$d 小时 %2$d 分钟</string>
+    <string name="settings_developer_demo_remaining_minutes">演示模式还剩 %1$d 分钟</string>
+    <string name="settings_developer_demo_remaining_soon">演示模式还剩不到 1 分钟</string>
+    <string name="settings_developer_exit_demo">退出演示模式</string>
+    <string name="settings_developer_exit_demo_desc">示例药品会立刻从今日用药里消失</string>
 </resources>

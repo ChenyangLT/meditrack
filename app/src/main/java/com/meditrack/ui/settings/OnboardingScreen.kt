@@ -81,7 +81,7 @@ fun OnboardingScreen(
             TopAppBar(
                 title = { Text("欢迎使用药准时") },
                 actions = {
-                    TextButton(onClick = onFinished) { Text("稍后再说") }
+                    TextButton(onClick = onFinished) { Text("暂时跳过") }
                 },
             )
         },
@@ -118,7 +118,7 @@ fun OnboardingScreen(
                     )
                     Spacer(modifier = Modifier.height(6.dp))
                     Text(
-                        text = "药准时需要下面几项权限，才能保证到点提醒。缺少权限时提醒可能会延迟或收不到。",
+                        text = "药准时需要下面几项权限，才能保证准时提醒。缺少权限时提醒可能延迟或收不到。",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         textAlign = TextAlign.Center,
@@ -130,7 +130,7 @@ fun OnboardingScreen(
                 PermissionCard(
                     icon = Icons.Filled.NotificationsActive,
                     title = "通知权限",
-                    body = "没有它，应用无法在到点时提醒你，也无法在通知里提供「已服 / 稍后 / 跳过」按钮。",
+                    body = "没有它，应用无法在到时间时提醒你，也无法在通知里提供「已服用 / 稍后提醒 / 跳过」按钮。",
                     granted = permissions.notifications == PermissionStatus.GRANTED,
                     onGrant = {
                         viewModel.permissionIntent(context, SettingsViewModel.KEY_NOTIFICATIONS)
@@ -181,7 +181,7 @@ fun OnboardingScreen(
                             modifier = Modifier.padding(end = 10.dp),
                         )
                         Text(
-                            text = "小提示：长按桌面空白处 → 添加小组件 → 选择「药准时」，就能随时看到还没吃的药。",
+                            text = "小提示：长按桌面空白处 → 添加小组件 → 选择「药准时」，就能随时看到今天还没有完成的用药。",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             // The paragraph owns the rest of the line next to the icon, so a long
@@ -194,7 +194,7 @@ fun OnboardingScreen(
 
             item {
                 Text(
-                    text = "本应用只做用药记录与提醒，不提供诊断或用药建议。请遵照医生或药师的处方服药。",
+                    text = "本应用只做用药记录与提醒，不提供任何诊断、治疗或用药建议。请严格按照医生或药师的处方服药。",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     textAlign = TextAlign.Center,

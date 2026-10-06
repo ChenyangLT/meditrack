@@ -53,7 +53,7 @@ class NavigationSmokeTest {
      * by design, and the deep-link label appears in both the title and the body).
      */
     private fun dismissOnboardingIfPresent() {
-        val skip = composeRule.onAllNodesWithText("稍后再说")
+        val skip = composeRule.onAllNodesWithText("暂时跳过")
         if (skip.fetchSemanticsNodes().isNotEmpty()) {
             skip.onFirst().performClick()
             composeRule.waitForIdle()

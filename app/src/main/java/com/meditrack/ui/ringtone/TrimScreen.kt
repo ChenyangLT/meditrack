@@ -113,10 +113,22 @@ fun TrimScreen(
     // where the keyboard comes up over the waveform, which is exactly when a stray rotation happens.
     var name by rememberSaveable { mutableStateOf("") }
 
+    // Which source *this visit* to the trimmer has already decoded.
+    //
+    // `rememberSaveable` rather than `remember`: a rotation recreates this composition and must not
+    // re-decode, because that would throw away the selection the user had just made - while leaving the
+    // trimmer and coming back, with a different file or with the same one again, must decode.
+    //
+    // The previous guard asked the ViewModel "is a waveform already loaded?" instead. The ViewModel
+    // outlives this screen (it is scoped to the 设置 destination, not to the trimmer), so a second visit
+    // kept showing - and saving a clip out of - the first visit's file.
+    var decodedSource by rememberSaveable { mutableStateOf("") }
     LaunchedEffect(sourceUri, sourceLabel) {
-        // Decoded once per source: a rotation recreates this effect, and re-running it would throw away
-        // the selection the user had just made.
-        if (viewModel.waveform.value == null && !viewModel.isLoading.value) {
+        if (decodedSource != sourceUri.toString()) {
+            decodedSource = sourceUri.toString()
+            // The clip is named after *this* file; a name left over from the previous visit would
+            // otherwise survive, because the field below is only filled while it is blank.
+            name = ""
             viewModel.load(sourceUri, sourceLabel)
         }
     }
@@ -130,7 +142,14 @@ fun TrimScreen(
         }
     }
 
-    LaunchedEffect(savedClipId) { savedClipId?.let(onSaved) }
+    // A "saved" event is this visit's event, not the previous one's. `savedClipId` lives in a ViewModel
+    // that outlives this screen, so the value already present when the screen opened is ignored - without
+    // that, every trim attempt after the first closed itself the instant it appeared, because the
+    // leftover id fired onSaved and sent the user straight back to the ringtone list.
+    val savedClipIdOnEntry = remember { viewModel.savedClipId.value }
+    LaunchedEffect(savedClipId) {
+        savedClipId?.takeIf { it != savedClipIdOnEntry }?.let(onSaved)
+    }
 
     LaunchedEffect(message) {
         message?.let {

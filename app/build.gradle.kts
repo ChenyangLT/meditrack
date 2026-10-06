@@ -19,6 +19,9 @@ android {
         // Bumped per delivery so each build can install straight over the last one (both are signed
         // with the same key, so a higher versionCode is what makes that an upgrade rather than a
         // downgrade refusal).
+        //  13 / 2.1.0 - in-app update download + install with mirror choice and release notes, trimmer
+        //               fixed, terminology pass, dropdown selectors, app-lock row opens the system
+        //               setting, developer options with debug and time-boxed demo mode
         //  12 / 2.0.0 - custom ringtone with in-app trimming, ringing until acknowledged, per-medication
         //               review reminders («复查提醒»), offline knowledge base, first-run agreement,
         //               expandable settings, cache clearing
@@ -32,8 +35,8 @@ android {
         //   4 / 1.3.0 - background guard service, alarm-clock alarms and lost-alarm evidence
         //   3 / 1.2.0 - widget size family (4x1 / 4x2 / 4x3 / 4x4)
         //   2 / 1.1.0 - reminder pipeline rewrite
-        versionCode = 12
-        versionName = "2.0.0"
+        versionCode = 13
+        versionName = "2.1.0"
 
         // Custom runner that swaps in HiltTestApplication for the instrumented tests.
         testInstrumentationRunner = "com.meditrack.MediTrackTestRunner"
@@ -203,6 +206,9 @@ dependencies {
     androidTestImplementation("androidx.test.espresso:espresso-core:3.5.1")
     androidTestImplementation(platform("androidx.compose:compose-bom:2024.02.01"))
     androidTestImplementation("androidx.compose.ui:ui-test-junit4")
+    // The same assertion library the JVM tests use, so an instrumented test reads like the unit tests
+    // beside it rather than switching to a raw `assertEquals` dialect.
+    androidTestImplementation("com.google.truth:truth:1.1.5")
 
     // Hilt test support: @HiltAndroidTest + HiltAndroidRule + the generated test component.
     androidTestImplementation("com.google.dagger:hilt-android-testing:2.50")
