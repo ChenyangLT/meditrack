@@ -57,6 +57,7 @@ GET https://api.github.com/repos/ChenyangLT/meditrack/releases/latest           
 ```powershell
 gradle :app:testDebugUnitTest                # 单元测试
 gradle :app:assembleDebug :app:assembleRelease
+gradle :app:connectedDebugAndroidTest        # 真机/模拟器测试（音频裁剪、裁剪流程）
 python tools/verify_migration.py             # 数据库迁移：同一库 v1→v5 逐列比对 Room schema，并断言新列的默认值
 python tools/verify_dao_sql.py              # 全部 @Query 在真实 schema 上编译 + 行为断言
 python tools/generate_tones.py               # 重新合成五个内置铃声（numpy + ffmpeg，OGG 共约 40 KB）
@@ -66,6 +67,25 @@ python tools/update_version_manifest.py      # 发布后更新 docs/version.json
 
 > `verify_release_reflection.py` 不是可选项：R8 会删掉只被反射使用的 `@SerializedName`，一旦漏了 keep 规则，
 > 备份与更新检查会在**正式版上静默解析失败**（1.8.0 就栽在这里），而单元测试和 debug 构建都发现不了。
+
+### 开发者选项
+
+设置 → **开发者选项**，进入密码：**`meditrack123`**
+
+这个门槛只是为了挡住误触，**不是安全边界**——密码就写在这里，任何人都能看到。它刻意不用
+`BuildConfig.DEBUG` 判断，这样正式版和 debug 版走的是同一条代码路径。
+
+| 选项 | 作用 |
+| --- | --- |
+| **调试模式** | 输出详细日志，便于反馈问题时定位原因。正式版也能开。 |
+| **演示模式** | 注入一组示例药品，方便演示与试用。默认 **24 小时后自动过期**，主页有「退出演示模式」按钮。 |
+
+演示模式的示例药品使用**负数 id**，并被显式排除在所有数据库写入之外（`materializeDay`、`sweepMissed`、
+`TodayViewModel.ensurePersisted`），因此不会进入你的真实记录，也不会出现在备份里。演示数据目前只在
+「今日」页可见——桌面小组件与「药品」列表读的是数据库，没有第二条规划路径。
+
+> 为什么放一个弱密码而不是隐藏入口：这个开关会写入示例用药数据，误触的代价比多点一次大。真正的
+> 安全机制不该是这个密码，而是「演示数据永不落库」这条约束——它有代码和测试兜底。
 
 - **架构**：数据库是唯一事实来源，闹钟只是提示；每次触发（闹钟 / 心跳 / 开机 / 启动 / 解锁）都从数据库重算并重排全部提醒，因此任何一条路径丢了闹钟都能自愈
 - **数据库**：Room，当前 schema v5，迁移纯增量、不丢历史。v5 新增 `medications` 的复查列、`medication_review_cycles`（复查轮次）与 `ring_clips`（自定义铃声），且新列的默认值保证**升级用户不会被凭空提醒**
