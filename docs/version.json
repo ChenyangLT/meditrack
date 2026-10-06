@@ -11,24 +11,9 @@
       "url": "https://github.com/ChenyangLT/meditrack/releases/download/v2.1.0/MediTrack-release-2.1.0-20261007-0042.apk"
     },
     {
-      "id": "jsdelivr",
-      "label": "jsDelivr CDN（国内较快）",
-      "url": "https://cdn.jsdelivr.net/gh/ChenyangLT/meditrack@v2.1.0/releases/apk/MediTrack-release-2.1.0-20261007-0042.apk"
-    },
-    {
-      "id": "ghfast",
-      "label": "ghfast 加速",
-      "url": "https://ghfast.top/https://github.com/ChenyangLT/meditrack/releases/download/v2.1.0/MediTrack-release-2.1.0-20261007-0042.apk"
-    },
-    {
-      "id": "ghproxy",
-      "label": "gh-proxy 加速",
-      "url": "https://gh-proxy.com/https://github.com/ChenyangLT/meditrack/releases/download/v2.1.0/MediTrack-release-2.1.0-20261007-0042.apk"
-    },
-    {
-      "id": "moeyy",
-      "label": "moeyy 加速",
-      "url": "https://github.moeyy.xyz/https://github.com/ChenyangLT/meditrack/releases/download/v2.1.0/MediTrack-release-2.1.0-20261007-0042.apk"
+      "id": "ghproxyN",
+      "label": "ghproxy.net 加速",
+      "url": "https://ghproxy.net/https://github.com/ChenyangLT/meditrack/releases/download/v2.1.0/MediTrack-release-2.1.0-20261007-0042.apk"
     }
   ],
   "body": "# 药准时 2.1.0\n\n**这一版最重要的一件事：更新可以直接在应用内下载并安装了。** 之前更新要跳到浏览器打开 GitHub，部分网络环境下根本打不开——现在有多个下载方式可选，下载后会自动校验签名再交给系统安装。同时修好了「裁剪片段」不可用的问题。\n\n## 一、应用内下载并安装（解决打不开 GitHub）\n\n以前点「前往下载」会打开浏览器，在网络受限的环境下这就等于卡死。现在：\n\n- **直接在应用内下载**，带进度条和已下载大小，可以随时取消。\n- **多个下载方式可选**（下拉框）：GitHub 官方地址、jsDelivr CDN、以及若干加速镜像。默认仍是 GitHub 官方。\n- **下载后自动校验**：确认是有效的安装包、包名正确、并且**签名与当前版本一致**，任何一项不通过都不会安装。这一点在从第三方镜像下载时尤其重要。\n- **首选安装**：校验通过后直接交给系统安装器，不需要再去下载目录里找文件。\n- 首次使用会提示授予「安装未知应用」权限，这是系统的安全限制，应用无法自己开启；授权后回来再点一次即可。\n- **更新时显示本次更新内容**（就是本页正文），不用再去网页上看改了什么。\n\n## 二、修复「裁剪片段」不可用\n\nv2.0.0 的裁剪功能在真机上无法使用。这一版修好了，并且补了**真机（模拟器）上的自动化测试**来保证它不再退化：现在会真正验证 MP3 与 WAV 都能被裁成一个可播放的片段。\n\n## 三、术语与文案优化\n\n统一了全应用的用词，一个概念只有一个说法：\n\n- 已服 → **已服用**；推迟 → **稍后提醒**；漏服 → **未服药**（与「已跳过」严格区分，依从率统计依赖这个区分）。\n- 该吃药了 → **该服用**；到点 → **到时间 / 准时**；医生怎么说 → **医生嘱托**；我的铃声 → **自定义铃声**。\n- 去掉语气词与口语化表达（哦、啦、～、别忘了、点点就能），长句拆短，长副标题精简。\n- 「弹窗」这类实现细节词不再出现在面向用户的说明里。\n\n新增 [`docs/文案术语规范.md`](https://github.com/ChenyangLT/meditrack/blob/main/docs/%E6%96%87%E6%A1%88%E6%9C%AF%E8%AF%AD%E8%A7%84%E8%8C%83.md)，把术语表和写作原则固定下来，避免以后又各说各话。\n\n## 四、部分选择改为下拉框\n\n自检频率、稍后提醒间隔、多久之后算「太晚了」、搜索用哪个引擎改为下拉框；免打扰时段的开始/结束时间也改成下拉样式（仍然打开时间选择器，因为时间需要精确到分钟）。折叠时始终显示当前取值。\n\n## 五、应用锁改为系统设置\n\n应用**自己不做应用锁**——不做密码、不做指纹，因为这个应用里没有值得再设一道独立密码的东西，而多一道锁只会在半夜提醒时挡住你。设置里的「应用锁」现在是一个入口，点开会打开**系统**的应用锁/安全设置页面。\n\n## 六、开发者选项（新增）\n\n设置 → 开发者选项，**需要密码**。这一版新增：\n\n- **调试模式**：输出详细日志，便于反馈问题时定位原因（正式版也能开）。\n- **演示模式**：用一组示例药品填满界面，方便演示与试用。**默认 24 小时后自动关闭**，也可以在主页的「演示模式」提示条上手动退出。示例药品带有明显标注，不会写入你的用药记录，也不会出现在备份里。\n\n密码写在 [README 的开发说明](https://github.com/ChenyangLT/meditrack#%E5%BC%80%E5%8F%91) 里。这个门槛只是为了挡住误触，不是安全边界。\n\n## 七、验证\n\n- JVM 单元测试全部通过。\n- **真机（模拟器 API 34）自动化测试通过**：`AudioTrimmerDeviceTest` 4/4 —— 验证 MP3 与 WAV 都能被真正裁成可播放的 M4A，以及时长可读。\n- `tools/verify_migration.py`（v2 → v5 逐列比对）、`tools/verify_dao_sql.py`（全部 `@Query` 在真实 schema 上 prepare）、`tools/verify_release_reflection.py`（正式版 dex 里 Gson 注解与 DTO 类名都在）全部通过。\n\n## 八、数据与兼容\n\n- **未改数据库版本**（仍为 v5），升级不涉及迁移风险。\n- 新增权限 `REQUEST_INSTALL_PACKAGES`：仅用于把下载好的安装包交给系统安装器，系统仍会对每次安装单独确认，应用无法静默安装任何东西。\n- 与旧版同签名，可直接覆盖安装，数据保留。\n"
